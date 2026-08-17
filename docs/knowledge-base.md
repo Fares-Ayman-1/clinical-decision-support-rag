@@ -26,7 +26,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 62 |
 | License | CC BY-NC-SA 3.0 IGO (standard WHO IRIS license) |
 | Source | WHO Institutional Repository for Information Sharing (IRIS) |
-| Source URL | `TBD` — team to record the exact IRIS permalink before the Day-1 review |
+| Source URL | https://iris.who.int/handle/10665/380065 |
+| URL provenance | ISBN 978-92-4-010366-5 on the PDF copyright page; IRIS title match; HTTP 200 |
 | Access date | 2026-08-17 |
 | Usage justification | Non-commercial, educational hackathon use under a share-alike license; document is not modified or redistributed, only chunked and indexed for retrieval with citation back to the original |
 | Checksum | `053d8afc4f2991f11331770b5d28e91258043e75c05f4925073b4da788067c54` |
@@ -40,7 +41,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 240 |
 | License | CC BY-NC-SA 3.0 IGO (standard WHO IRIS license) |
 | Source | WHO Institutional Repository for Information Sharing (IRIS) |
-| Source URL | `TBD` — team to record the exact IRIS permalink before the Day-1 review |
+| Source URL | https://iris.who.int/handle/10665/275635 |
+| URL provenance | IRIS exact title match; HTTP 200 |
 | Access date | 2026-08-17 |
 | Usage justification | Same as above |
 | Checksum | `51e5000a8f268d67f28a8206e7b8a35ba7877bec0b45e28084970b074e00043e` |
@@ -58,7 +60,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 306 |
 | License | CC BY-NC-SA 3.0 IGO (standard WHO IRIS license) |
 | Source | WHO Institutional Repository for Information Sharing (IRIS) |
-| Source URL | `TBD` |
+| Source URL | https://iris.who.int/handle/10665/352851 |
+| URL provenance | IRIS record carries report no. 2022.1 matching the PDF's WHO/2019-nCoV/SARI_toolkit/2022.1; HTTP 200 |
 | Access date | 2026-08-17 |
 | Usage justification | Same as above |
 | Checksum | `1181775bd1de374889a71db062048c7f649f0dd322ae04dce6925e92a735adf4` |
@@ -72,7 +75,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 396 |
 | License | CC BY-NC-SA 3.0 IGO (standard WHO IRIS license) |
 | Source | WHO Institutional Repository for Information Sharing (IRIS) |
-| Source URL | `TBD` |
+| Source URL | TBD — 10665/350623 or 10665/350624 |
+| URL provenance | both IRIS records hold the 2021 SEARO IMAI manual; neither their metadata nor the PDF's ISBNs identify which is Volume 2 (the volume in this corpus). A guessed link would resolve to the wrong volume, which is worse than an open placeholder. |
 | Access date | 2026-08-17 |
 | Usage justification | Same as above. Table-dense — table extraction path applies (RAG-2.4) |
 | Checksum | `b69df48535ebc2c4a82d4baf6f17029619def7b3d6f830b4380115623a47e250` |
@@ -86,7 +90,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 697 |
 | License | CC BY-NC-SA 3.0 IGO (standard WHO IRIS license) |
 | Source | WHO Institutional Repository for Information Sharing (IRIS) |
-| Source URL | `TBD` |
+| Source URL | https://iris.who.int/handle/10665/365135 |
+| URL provenance | handle 10665/365135 printed inside the PDF itself; HTTP 200 |
 | Access date | 2026-08-17 |
 | Usage justification | Same as above. **Prescribing-restricted** (SAF-7.x) — enforced in the Safety Validator, not just this attestation. Table-dense — table extraction path applies |
 | Checksum | `4960ecc4fa5bab8281feda656a0da3176dafa1fd21971d87e3b2092d7dac562f` |
@@ -100,7 +105,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 7 |
 | License | U.S. Government public domain (USPSTF recommendation statements are federally funded work product) |
 | Source | USPSTF Recommendation Topics |
-| Source URL | `TBD` |
+| Source URL | https://doi.org/10.1001/jama.2020.21749 |
+| URL provenance | DOI printed in the PDF; Crossref confirms title and 2020 |
 | Access date | 2026-08-17 |
 | Usage justification | Public domain — unrestricted use. Carries explicit A/B/C/D/I evidence grades (RAG-2.x) |
 | Checksum | `20194393c719b4992b26cd7b2f16c923417bd4c9d7ef38efaef33b973d8ed6b7` |
@@ -114,7 +120,8 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 | Pages | 8 |
 | License | U.S. Government public domain |
 | Source | USPSTF Recommendation Topics |
-| Source URL | `TBD` |
+| Source URL | https://doi.org/10.1001/jama.2022.10951 |
+| URL provenance | DOI printed in the PDF; Crossref confirms title and 2022 |
 | Access date | 2026-08-17 |
 | Usage justification | Same as above |
 | Checksum | `063a22270a5524a69158f810bca0e96b755b10a5dde1c7dcf4e9b11dda5e91ce` |
@@ -123,7 +130,9 @@ this repository — only derived chunks are indexed; source PDFs stay local and 
 
 ## Outstanding Before the Day-1 Mentor Review
 
-- [ ] Fill in each `TBD` source URL with the exact WHO IRIS / USPSTF permalink used to obtain the PDF
+- [x] Fill in each source URL — 6 of 7 done, each derived from an identifier printed inside the
+      PDF and verified to resolve (HTTP 200 / Crossref). `who_dcm` remains open: see its
+      URL provenance note above.
 - [ ] Confirm `who_dcm` and `who_aware` publication years against their title pages (creation-date
       metadata reflects the PDF file's generation date, not necessarily first publication)
 - [ ] One-line verbal justification prepared for mentors on why 7 documents were chosen despite the

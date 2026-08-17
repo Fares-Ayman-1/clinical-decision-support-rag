@@ -11,6 +11,13 @@ const normalizedScore = finiteNumber.min(0).max(1);
 // z.string().url() would reject every real evidence citation until that
 // admin task is finished, so the placeholder is accepted alongside a real
 // URL rather than silently loosening validation for actual malformed data.
+// Most chunks now carry a real, resolving source URL (WHO IRIS handles and
+// DOIs, each derived from an identifier inside the PDF and verified to
+// resolve). One document (who_dcm) is still an explicit TBD: two IRIS
+// records hold the 2021 SEARO IMAI manual and neither their metadata nor
+// the PDF's ISBNs identify which one is Volume 2, so a guessed link would
+// resolve to the wrong book — worse than a placeholder, because it looks
+// correct. The TBD branch stays until that is confirmed.
 const sourceUrl = z
   .string()
   .trim()

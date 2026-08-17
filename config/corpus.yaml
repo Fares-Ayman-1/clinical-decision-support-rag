@@ -17,8 +17,10 @@ documents:
     domains: [cardiovascular, acs, stroke, emergency]
     heading_profile: config/heading_profiles/who_acs_stroke.yaml
     license: "CC BY-NC-SA 3.0 IGO"
-    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
-    publication_year: 2018
+    source_url: "https://iris.who.int/handle/10665/380065"
+    # Corrected from 2018: the PDF's own copyright page reads
+    # "© World Health Organization 2024" with ISBN 978-92-4-010366-5.
+    publication_year: 2024
 
   - document_id: who_bec
     title: "WHO/ICRC Basic Emergency Care"
@@ -29,7 +31,7 @@ documents:
     domains: [emergency, acute-care]
     heading_profile: config/heading_profiles/who_bec.yaml
     license: "CC BY-NC-SA 3.0 IGO"
-    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    source_url: "https://iris.who.int/handle/10665/275635"
     publication_year: 2018
 
   - document_id: who_sari
@@ -41,7 +43,7 @@ documents:
     domains: [respiratory]
     heading_profile: config/heading_profiles/generic.yaml
     license: "CC BY-NC-SA 3.0 IGO"
-    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    source_url: "https://iris.who.int/handle/10665/352851"
     publication_year: 2022
 
   - document_id: who_dcm
@@ -53,7 +55,7 @@ documents:
     domains: [gastrointestinal, abdominal, general-acute]
     heading_profile: config/heading_profiles/generic.yaml
     license: "CC BY-NC-SA 3.0 IGO"
-    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    source_url: "TBD — two IRIS records (10665/350623, 10665/350624) hold the 2021 SEARO IMAI manual; confirm which is Volume 2 before use"
     publication_year: 2021
 
   - document_id: who_aware
@@ -65,7 +67,7 @@ documents:
     domains: [infectious-disease]
     heading_profile: config/heading_profiles/generic.yaml
     license: "CC BY-NC-SA 3.0 IGO"
-    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    source_url: "https://iris.who.int/handle/10665/365135"
     publication_year: 2023
     # SAF-7.x: this document must never drive autonomous prescribing.
     # Enforced in code by the Safety Validator (backend/app/services/safety/),
@@ -81,7 +83,7 @@ documents:
     domains: [prevention, nutrition, physical-activity]
     heading_profile: config/heading_profiles/generic.yaml
     license: "U.S. Government public domain"
-    source_url: "TBD — record exact USPSTF URL in docs/knowledge-base.md"
+    source_url: "https://doi.org/10.1001/jama.2020.21749"
     publication_year: 2020
     has_evidence_grades: true   # USPSTF A/B/C/D/I — see RAG-2.x, extracted in Phase 5
 
@@ -94,6 +96,6 @@ documents:
     domains: [prevention, wellness, nutrition, physical-activity]
     heading_profile: config/heading_profiles/generic.yaml
     license: "U.S. Government public domain"
-    source_url: "TBD — record exact USPSTF URL in docs/knowledge-base.md"
+    source_url: "https://doi.org/10.1001/jama.2022.10951"
     publication_year: 2022
     has_evidence_grades: true

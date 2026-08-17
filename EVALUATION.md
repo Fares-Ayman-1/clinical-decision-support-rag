@@ -422,8 +422,11 @@ Stated plainly, because a technical panel will find them anyway:
     (`--skip-faithfulness` was used for the runs here to limit free-tier exposure, per limitation 8).
 13. **`golden` has not been evaluated.** It is deliberately reserved as report-only and was held
     back rather than spent during iteration; a final reporting run against it is still owed.
-14. **All 7,381 chunks carry a placeholder `source_url`**, so evidence "view source" links do not
-    resolve.
+14. **One document still lacks a resolvable `source_url`.** 5,392 of 7,381 chunks (73%) now carry
+    verified links — WHO IRIS handles and DOIs, each derived from an identifier printed inside the
+    PDF and confirmed to resolve. `who_dcm` (1,989 chunks) remains an explicit placeholder: two IRIS
+    records hold the 2021 SEARO IMAI manual and neither their metadata nor the PDF's ISBNs identify
+    which is Volume 2, so a guessed link would resolve to the wrong volume.
 
 ---
 

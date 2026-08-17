@@ -1023,6 +1023,48 @@ unanswerable by design** under SAF-7.1, which is a scope finding worth stating r
 
 **115 tests passing** (6 new retry tests, including one pinning the subclass-ordering hazard).
 
+**Source URLs filled in — 6 of 7 documents, every one verified (this session):**
+
+All 7,381 chunks carried the Phase 1 placeholder `"TBD — record exact WHO IRIS URL…"`, so every
+"view source" link in the Evidence Inspector was dead. This also blocked open question **Q9** (the
+Scope Approval gate needs real provenance).
+
+- **URLs were derived, never recalled.** Writing a plausible-looking URL from memory would be
+  fabricating a citation source — precisely what this system exists to prevent — so each one starts
+  from an identifier printed **inside the PDF** and was then confirmed to resolve:
+
+  | Document | URL | Derived from | Verified |
+  |---|---|---|---|
+  | `who_aware` | `iris.who.int/handle/10665/365135` | handle printed in the PDF | HTTP 200 |
+  | `who_acs_stroke` | `iris.who.int/handle/10665/380065` | ISBN 978-92-4-010366-5 → IRIS title match | HTTP 200 |
+  | `who_bec` | `iris.who.int/handle/10665/275635` | IRIS exact title match | HTTP 200 |
+  | `who_sari` | `iris.who.int/handle/10665/352851` | IRIS record's report no. `2022.1` matches the PDF's `WHO/2019-nCoV/SARI_toolkit/2022.1` | HTTP 200 |
+  | `uspstf_cvd_risk` | `doi.org/10.1001/jama.2020.21749` | DOI printed in the PDF | Crossref: title + 2020 ✓ |
+  | `uspstf_no_cvd_risk` | `doi.org/10.1001/jama.2022.10951` | DOI printed in the PDF | Crossref: title + 2022 ✓ |
+
+- **`who_dcm` was deliberately left as a TBD, with the reason recorded.** Two IRIS records
+  (`10665/350623`, `10665/350624`) both hold the 2021 SEARO IMAI manual; the PDF is **Volume 2**,
+  and neither IRIS metadata nor the PDF's two ISBNs identify which record is which. A guessed link
+  would resolve to the wrong volume — **worse than a placeholder, because it looks correct.** 1,989
+  chunks (27%) still carry a TBD that now names both candidate handles.
+- **A guessed USPSTF slug returned 404** during verification, which is exactly why every URL was
+  checked rather than pattern-matched. The DOIs from the PDFs were used instead.
+- **Found and fixed a metadata error while verifying**: `corpus.yaml` recorded
+  `who_acs_stroke: publication_year 2018`, but the PDF's copyright page reads **2024**.
+- **`scripts/restamp_metadata.py`** (new) updates document-level fields on already-built chunk files
+  without a full re-chunk/re-embed/re-index. Safe because it was **checked, not assumed**:
+  `content_hash` is sha256 over `text` alone, and `embedded_text` is
+  `{document_title} > {section_path}\n\n{text}` with no URL, licence, or year in it — so stored
+  vectors stay valid. The script **refuses** to re-stamp `document_title`/`organization` (which *are*
+  in `embedded_text`) and tells you to re-index instead, so the safe/unsafe distinction is enforced
+  rather than documented.
+- **Verified live**: `/api/evidence/{chunk_id}` and a real `/api/query` both return resolving IRIS
+  links. 115 backend tests, 36 frontend tests, typecheck all passing. The frontend's Zod schema
+  already accepted both forms, so no contract change was needed.
+
+**Open question Q9 is now 6/7 resolved**, with the remaining item narrowed from "find 7 URLs" to
+"confirm which of two known IRIS handles is Volume 2".
+
 ---
 
 ## 6. Features In Progress
