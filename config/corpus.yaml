@@ -1,0 +1,99 @@
+# Corpus configuration — the D1 Scope Approval mitigation (ARCHITECTURE.md §5.2).
+#
+# If mentors require strict 1-2 document compliance at the Day-1 Scope Approval gate,
+# set every Tier 2 document's `enabled` to false and re-run scripts/build_index.py.
+# No code changes are required. Tier 1 alone must satisfy every acceptance criterion
+# in SPEC.md.
+
+kb_version: "1.0"
+
+documents:
+  - document_id: who_acs_stroke
+    title: "WHO Framework for the Care of Acute Coronary Syndrome and Stroke"
+    organization: WHO
+    tier: 1
+    enabled: true
+    file: data/raw/who_acs_stroke.pdf
+    domains: [cardiovascular, acs, stroke, emergency]
+    heading_profile: config/heading_profiles/who_acs_stroke.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    publication_year: 2018
+
+  - document_id: who_bec
+    title: "WHO/ICRC Basic Emergency Care"
+    organization: "WHO/ICRC"
+    tier: 1
+    enabled: true
+    file: data/raw/who_bec.pdf
+    domains: [emergency, acute-care]
+    heading_profile: config/heading_profiles/who_bec.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    publication_year: 2018
+
+  - document_id: who_sari
+    title: "WHO Clinical Care of Severe Acute Respiratory Infections Toolkit"
+    organization: WHO
+    tier: 2
+    enabled: true
+    file: data/raw/who_sari.pdf
+    domains: [respiratory]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    publication_year: 2022
+
+  - document_id: who_dcm
+    title: "WHO District Clinician Manual / Hospital Care"
+    organization: WHO
+    tier: 2
+    enabled: true
+    file: data/raw/who_dcm.pdf
+    domains: [gastrointestinal, abdominal, general-acute]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    publication_year: 2021
+
+  - document_id: who_aware
+    title: "The WHO AWaRe (Access, Watch, Reserve) Antibiotic Book"
+    organization: WHO
+    tier: 2
+    enabled: true
+    file: data/raw/who_aware.pdf
+    domains: [infectious-disease]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "TBD — record exact WHO IRIS URL in docs/knowledge-base.md"
+    publication_year: 2023
+    # SAF-7.x: this document must never drive autonomous prescribing.
+    # Enforced in code by the Safety Validator (backend/app/services/safety/),
+    # not by this flag alone.
+    prescribing_restricted: true
+
+  - document_id: uspstf_cvd_risk
+    title: "USPSTF Healthy Diet and Physical Activity — WITH Cardiovascular Risk Factors"
+    organization: USPSTF
+    tier: 2
+    enabled: true
+    file: data/raw/uspstf_cvd_risk.pdf
+    domains: [prevention, nutrition, physical-activity]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "U.S. Government public domain"
+    source_url: "TBD — record exact USPSTF URL in docs/knowledge-base.md"
+    publication_year: 2020
+    has_evidence_grades: true   # USPSTF A/B/C/D/I — see RAG-2.x, extracted in Phase 5
+
+  - document_id: uspstf_no_cvd_risk
+    title: "USPSTF Healthy Diet and Physical Activity — WITHOUT Known Cardiovascular Risk Factors"
+    organization: USPSTF
+    tier: 2
+    enabled: true
+    file: data/raw/uspstf_no_cvd_risk.pdf
+    domains: [prevention, wellness, nutrition, physical-activity]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "U.S. Government public domain"
+    source_url: "TBD — record exact USPSTF URL in docs/knowledge-base.md"
+    publication_year: 2022
+    has_evidence_grades: true

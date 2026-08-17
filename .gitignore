@@ -1,0 +1,55 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Data — raw PDFs and intermediate parse output are not committed.
+#
+# PLAN.md Phase 19 wants a fresh machine to start without re-ingesting
+# seven PDFs. That needs only the SERVING artifacts: the S1 chunks the MVP
+# index is built from, plus the Chunk Store (~28MB total). The other six
+# benchmark configs are ~71MB of experiment output, fully regenerable with
+# `python scripts/chunk.py --all-benchmark`, so they stay out — a 100MB
+# repo of regenerable artifacts is a real cost (clone time, GitHub's 100MB
+# per-file limit) for no recovery benefit.
+data/raw/*.pdf
+data/parsed/
+data/cleaned/
+
+# The original download folder — a redundant copy of the same seven PDFs
+# already staged into data/raw/ with SHA-256 checksums. ~48MB of
+# copyrighted WHO/USPSTF source documents that should not live in the
+# repository at all (data/raw/CHECKSUMS.sha256 is what pins the corpus;
+# docs/knowledge-base.md records provenance and licensing).
+WHO-ICRC Basic Emergency Care (2)/
+*.pdf
+data/chunks/1.0_A.jsonl
+data/chunks/1.0_B.jsonl
+data/chunks/benchmark/*.jsonl
+!data/chunks/benchmark/1.0_S1.jsonl
+
+# App storage
+*.db
+*.sqlite
+*.sqlite3
+
+# Vector store local volume (if bind-mounted)
+qdrant_storage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log

@@ -1,0 +1,67 @@
+# Heading profile for who_bec — hand-tuned per docs/corpus-profile.md.
+# Basis: direct font-size inspection confirmed a two-tier module structure
+# with repeated fixed subsection labels used as anchors across modules.
+
+document_id: who_bec
+profile_type: hand_tuned
+
+body_text_size: 10.0   # body also carries meaningful 11.0pt content; treat 10-11 as body range
+
+heading_levels:
+  - level: chapter          # -> "module" in this document's own vocabulary; maps to `section`
+    font_size_min: 24.0     # observed: 25.0pt exactly
+    font_size_max: 26.0
+    bold_required: false
+    numbering_pattern: '^Module\s+\d+:\s*'
+
+  - level: subsection        # -> subsection
+    font_size_min: 17.0      # observed: 18.0pt exactly
+    font_size_max: 19.0
+    bold_required: false
+    # These recur as fixed structural labels across every module — useful as
+    # positive anchors, not just size matches.
+    known_labels:
+      - OBJECTIVES
+      - "Essential skills"
+      - "KEY TERMS"
+      - OVERVIEW
+      - "SAFETY CONSIDERATIONS"
+
+exclude_headings:
+  - "Contents"
+  - "Notes"          # worksheet fill-in page marker, not content — see known_hazards
+  - "INTRODUCTION"   # front-matter, precedes Module 1
+
+footer:
+  strip_zone_from_bottom_pt: 45
+
+header:
+  # Two running headers observed: a constant document-name header and a
+  # current-module-name header. Both must be stripped in Phase 4 — the
+  # module-name header changes per module and will NOT be caught by a
+  # single fixed-string match; use frequency-based detection
+  # (ARCHITECTURE.md §6.2), not a hardcoded string list.
+  strip_zone_from_top_pt: 40
+  known_fixed_headers:
+    - "PARTICIPANT WORKBOOK"
+
+layout:
+  columns: 1
+  # Indented bullet lists (body x≈85, bullets x≈99) can misfire naive
+  # multi-column detectors. Not a real column split — do not split on this.
+
+known_hazards:
+  - id: worksheet_dotted_lines
+    description: >
+      Trainee fill-in "Notes" pages contain dotted-line placeholder runs
+      (font size ~20.5, repeated "...." characters) meant for handwriting.
+      Must be filtered as boilerplate in Phase 4, not embedded as chunk text.
+    detection: "line consists of >80% '.' characters, or heading text == 'Notes'"
+  - id: checkbox_glyphs
+    description: >
+      Inline control-character sequences (observed: \x83\x83) from a
+      Wingdings-style checkbox font appear mid-body-text (e.g. before
+      "L: LAST ORAL INTAKE"). Standard ligature/smart-quote repair will not
+      catch these — needs an explicit strip rule for the \x80-\x9F control
+      range when it appears outside a legitimate encoding context.
+    detection: "codepoints in range U+0080-U+009F embedded in extracted text"

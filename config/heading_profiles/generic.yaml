@@ -1,0 +1,83 @@
+# Generic heading profile — used by all five Tier-2 documents per
+# ARCHITECTURE.md §6.3 and docs/corpus-profile.md.
+#
+# Unlike the hand-tuned Tier-1 profiles, this makes no document-specific
+# assumption about heading font sizes. It detects a heading as text that is
+# both larger than the page's dominant (body) font size AND either bold or
+# on its own line with surrounding whitespace. Where no reliable signal
+# exists, section detection falls back to `section_confidence: "inherited"`
+# (ARCHITECTURE.md §6.3) rather than guessing.
+
+profile_type: generic
+
+heading_detection:
+  # Body size is computed per-document at parse time — the font size used by
+  # the most distinct text LINES (block count, not total character count;
+  # see backend/app/services/ingestion/section_detection.py
+  # compute_body_text_size for why character-count weighting was wrong).
+  min_size_delta_over_body: 1.5
+  # Phase 4 finding: 3.0 was too permissive. who_aware's glossary entries
+  # are size=10.0 BOLD headers over size=10.0 NON-BOLD definition paragraphs
+  # — identical size, so the discriminator has to be bold, always. Raised so
+  # that only a very large size jump (rare on Tier-2 documents; found no
+  # real heading in this corpus needing it) can skip the bold requirement.
+  bold_required_if_size_delta_below: 6.0
+  min_heading_line_length: 3
+  max_heading_line_length: 120
+
+fallback:
+  on_no_heading_detected: inherit_previous
+  section_confidence_value: inherited
+
+table_detection:
+  # Cross-document finding (docs/corpus-profile.md): raw pdfplumber
+  # find_tables() output includes running headers/footers and cover-page
+  # layout blocks misdetected as 1-row/1-column "tables". This filter is
+  # NOT optional — who_dcm's front matter alone produces 93.4% false-positive
+  # table-flagged pages without it.
+  min_rows: 2
+  min_columns: 2
+  # Phase 3 finding: shape filtering alone is insufficient. who_acs_stroke's
+  # own cover page produced a near-full-page phantom table (5 rows x 3 cols)
+  # that was almost entirely empty cells around the title text. A table also
+  # needs a minimum fraction of genuinely non-empty cells to count as real.
+  min_non_empty_cell_fraction: 0.5
+  # Phase 3 finding: a small, densely-filled fragment can still slip through
+  # both filters above (who_sari page 215 — a ~38x56pt figure-label region
+  # with a 2x2 non-empty grid). Real corpus tables span tens of thousands of
+  # sq-pt; a minimum bounding-box area rules out icon/diagram-label fragments.
+  min_bbox_area_pt2: 8000
+
+known_hazards:
+  - id: table_false_positives
+    applies_to: [who_dcm, who_aware, who_sari]
+    description: >
+      Unfiltered find_tables() over-detects on running headers/footers and
+      ToC layout. Always apply table_detection.min_rows / min_columns above
+      before tagging a candidate as chunk_type: table.
+  - id: weak_heading_signal
+    applies_to: [who_sari]
+    description: >
+      No distinct large-font heading tier was found in a corpus-wide font
+      size scan. Expect a higher inherited-section rate for this document
+      than other Tier-2 documents. This is a known, accepted Tier-2
+      limitation, not a bug to chase.
+  - id: two_column_reading_order
+    applies_to: [uspstf_cvd_risk, uspstf_no_cvd_risk]
+    description: >
+      Genuine two-column academic layout confirmed by direct coordinate
+      inspection (label/answer columns in a clinician-summary figure, plus
+      two-column main article body). Default block extraction order does
+      NOT preserve reading order across columns. Extraction for these two
+      documents specifically must sort text blocks by x-band first, then by
+      y within each band, rather than relying on raw block order.
+  - id: prescribing_restricted_content
+    applies_to: [who_aware]
+    description: >
+      Table extraction fidelity matters most in this document — it carries
+      antibiotic dosing tables and SAF-7.x forbids autonomous prescribing
+      output. Parsing errors here are the highest-severity failure mode in
+      the corpus (PROJECT-STATE.md Risk #9). No special parsing behavior is
+      encoded here; the restriction is enforced downstream by the Safety
+      Validator, not by ingestion — this note exists so Phase 3/4 reviewers
+      treat this document's table output with extra scrutiny.

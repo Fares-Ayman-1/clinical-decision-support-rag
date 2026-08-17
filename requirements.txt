@@ -1,0 +1,46 @@
+# Pinned per PLAN.md Phase 1. Re-pin deliberately, not via unpinned upgrades.
+
+# --- Backend ---
+fastapi==0.141.1
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+httpx==0.28.1
+
+# --- PDF / document processing ---
+pymupdf==1.28.2
+pdfplumber==0.11.5
+
+# --- Retrieval ---
+qdrant-client==1.19.0
+sentence-transformers==5.7.0
+rank-bm25==0.2.2
+
+# --- LLM provider ---
+anthropic==0.68.0
+openai==1.99.9
+# Uses the OS certificate store for TLS validation instead of the bundled
+# certifi list. Needed in dev environments where local security software
+# (e.g. an antivirus HTTPS scanner) re-signs traffic with a root cert that
+# Windows trusts but that fails strict OpenSSL/certifi validation (a known
+# class of malformed-but-Windows-tolerated certs — X.509 Basic Constraints
+# not marked critical). Injected once at process startup in
+# backend/app/llm/provider.py; still real certificate validation, just
+# against the OS trust store rather than a hardcoded list.
+truststore==0.10.4
+
+# --- Evaluation / scoring ---
+numpy==2.2.1
+scikit-learn==1.6.1
+
+# --- Storage ---
+aiosqlite==0.20.0
+
+# --- Config / logging ---
+pyyaml==6.0.2
+structlog==24.4.0
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.2

@@ -1,0 +1,106 @@
+# Chunking configuration — ARCHITECTURE.md §6.4.
+#
+# `configs: A/B` are the two ORIGINAL configurations (PROJECT-STATE.md
+# decision A14: two, not four — "three re-index/re-eval cycles don't fit a
+# 5-day schedule"). Their token counts still use the provisional word-based
+# approximation in backend/app/services/ingestion/tokenization.py, and are
+# kept as-is because they're referenced in shipped Phase 5 artifacts
+# (data/chunks/1.0_A.jsonl, 1.0_B.jsonl) — not because they're still the
+# recommended defaults.
+#
+# `benchmark_configs` below are the Phase 6 chunking-strategy screen. Sizes
+# are in REAL tokens (backend/app/services/retrieval/embedding_provider.py
+# registers the actual tokenizer before these run) and are deliberately
+# NOT a rescaled version of A/B's 250-1000 range. The only embedding model
+# reachable in this sandbox (sentence-transformers/all-MiniLM-L6-v2 — no
+# network route to the HF Hub for any other candidate) has a real
+# max_seq_length of 256, not the 512 a generic BERT-family assumption would
+# suggest. Verified: at 256, config A is 70.2% truncated and config B is
+# 65.2% truncated (losing 45.9% / 31.1% of all text respectively) — so
+# benchmarking A vs B as originally sized would mostly measure a truncation
+# artifact, not a chunking-size effect. Measured contextual-prefix overhead
+# ({document_title} > {section_path}\n\n) is small (p90 26 real tokens), so
+# target_max ~210 keeps the full embedded text at p90 ~238, safely under
+# the 256 ceiling.
+
+configs:
+  A:
+    label: "balanced-400-600"
+    target_min_tokens: 400
+    target_max_tokens: 600
+    overlap_fraction: 0.15
+    description: "Balanced default (original Phase 5 config; provisional token count)."
+
+  B:
+    label: "precision-250-350"
+    target_min_tokens: 250
+    target_max_tokens: 350
+    overlap_fraction: 0.20
+    description: "Higher precision (original Phase 5 config; provisional token count)."
+
+# Phase 6 chunking-strategy benchmark — screen-then-refine design (see
+# PROJECT-STATE.md decision A19, superseding A14's "two configs" for the
+# benchmark specifically; A14 itself still stands for why this is 9
+# configs and not the originally requested 140). One factor varied at a
+# time from a fixed baseline (S2's size), all real tokens, all sentence
+# atoms via scripts/chunk_benchmark.py -> chunking_strategies.py.
+benchmark_configs:
+  S1:
+    strategy: section_aware
+    target_min_tokens: 90
+    target_max_tokens: 140
+    overlap_fraction: 0.15
+    description: "Small end — is there signal below the old config B?"
+  S2:
+    strategy: section_aware
+    target_min_tokens: 140
+    target_max_tokens: 210
+    overlap_fraction: 0.15
+    description: "Fits fully under the 256 model ceiling at p90 — the safe baseline."
+  S3:
+    strategy: section_aware
+    target_min_tokens: 210
+    target_max_tokens: 280
+    overlap_fraction: 0.15
+    description: "Straddles the ceiling — some chunks start truncating."
+  S4:
+    strategy: section_aware
+    target_min_tokens: 300
+    target_max_tokens: 420
+    overlap_fraction: 0.15
+    description: "Deliberately past the ceiling — tests the truncation cliff directly."
+  S5:
+    strategy: fixed_size
+    target_min_tokens: 140
+    target_max_tokens: 140
+    overlap_fraction: 0.15
+    description: "Ignores section_path entirely — does section-awareness earn its complexity?"
+  S6:
+    strategy: recursive
+    target_min_tokens: 140
+    target_max_tokens: 140
+    overlap_fraction: 0.15
+    description: "Separator-cascade packing at the same safe size as S2/S5."
+  S7:
+    strategy: section_aware
+    target_min_tokens: 140
+    target_max_tokens: 210
+    overlap_fraction: 0.0
+    description: "Same as S2 but overlap 0 — does overlap earn its index bloat?"
+
+# Rules applied identically under every config (ARCHITECTURE.md §6.4):
+#   1. A chunk never crosses a section boundary (fixed_size is the one
+#      deliberate exception — see chunking_strategies.py FixedSizeStrategy).
+#   2. A section shorter than target_min_tokens becomes one chunk (no padding).
+#   3. A section longer than target_max_tokens splits at sentence boundaries,
+#      packing greedily up to target_max_tokens, with overlap_fraction
+#      carried forward as trailing-sentence overlap into the next chunk.
+#   4. A table is always exactly one chunk, never split, regardless of size
+#      (flagged oversized: true if it alone exceeds target_max_tokens) —
+#      this is a safety invariant (RAG-2.4), never a tunable, in every
+#      strategy including fixed_size.
+#   5. A chunk under 40 tokens is dropped unless chunk_type == "recommendation".
+min_chunk_tokens: 40
+
+chunking_version: "section-v1"
+benchmark_chunking_version: "multi-v2"

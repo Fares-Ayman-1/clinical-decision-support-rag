@@ -1,0 +1,195 @@
+# Red-flag rules — SPEC.md SAF-6.x, ARCHITECTURE.md safety layer.
+#
+# Each rule sets an urgency FLOOR (SAF-6.2): the Risk Engine may escalate
+# above it, never de-escalate below it. These run BEFORE the full RAG
+# pipeline (SAF-6.1) so escalation is never delayed by retrieval or
+# generation latency.
+#
+# SAF-2.4: every rule MUST record the chunk_id it was derived from, plus
+# reviewer and date. The `source` block is not decoration — it is what
+# makes a rule auditable back to an approved document. Rules here were
+# derived by retrieving danger-sign content from the live index and
+# reading the actual chunk text; `source_excerpt` quotes that chunk
+# verbatim so a reviewer can confirm the rule matches its source without
+# re-running retrieval.
+#
+# IMPORTANT: these patterns are matched against PATIENT text, which is lay
+# language, while the source chunks are clinical language. A rule's
+# patterns are therefore the lay-vocabulary expression of the clinical
+# danger sign its source describes — that gap is the whole point of the
+# rule (an exact-phrase match against clinical text would never fire on
+# real patient input). Reviewer sign-off covers that mapping specifically.
+#
+# Matching is deliberately simple and deterministic (regex over normalized
+# text, no LLM) so a red-flag decision is explainable, testable, and
+# cannot itself hallucinate.
+
+version: "1.0"
+reviewed_by: "unreviewed — see PROJECT-STATE.md"
+reviewed_on: "2026-08-17"
+
+# NOTE ON REVIEW STATUS: these rules were derived from real corpus content
+# by an AI assistant and have NOT been reviewed by a clinician. SAF-2.4
+# requires a named reviewer. Until a qualified human signs off, this file
+# is demonstrator-grade. Do not present it as clinically validated.
+
+rules:
+  - id: RF-CARDIAC-001
+    label: "Possible acute coronary syndrome"
+    urgency_floor: CRITICAL
+    rationale: >
+      Chest pain described as pressure, tightness, crushing, or radiating to
+      jaw/arm is the classic presentation of a heart attack in the source
+      material, and time-to-treatment is the dominant outcome driver.
+    # Requires a chest-symptom term AND a qualifying descriptor, so
+    # "my chest itches" does not escalate to CRITICAL.
+    all_of:
+      - any_of:
+          - '\bchest\b'
+          - '\bheart\b'
+      - any_of:
+          - '\bpressure\b'
+          - '\btight(ness|ening)?\b'
+          - '\bcrush(ing)?\b'
+          - '\bsqueez(e|ing)\b'
+          - '\bheavy\b|\bheaviness\b'
+          - '\bradiat(e|ing)\b'
+          - '\b(pain|ache).{0,30}\b(jaw|arm|shoulder|neck)\b'
+    source:
+      chunk_id: who_bec_S1_p113_s59_c1
+      document_id: who_bec
+      page: 113
+      section_path: "Approach to shock > POSSIBLE CAUSES OF SHOCK"
+      source_excerpt: >
+        Heart attack - Pressure, tightness, pain or crushing feeling in the
+        chest - Diaphoresis and mottled skin - Difficulty in breathing -
+        Nausea or vomiting - Pain moving to jaw or arms
+
+  - id: RF-STROKE-001
+    label: "Possible stroke"
+    urgency_floor: CRITICAL
+    rationale: >
+      Sudden unilateral weakness, facial droop, or speech difficulty are the
+      stroke recognition signs in the source material. Stroke is explicitly
+      time-critical.
+    any_of:
+      - '\b(face|facial).{0,20}\b(droop|drooping|numb|weak)'
+      - '\bweak(ness)?\b.{0,30}\b(one side|left side|right side|arm|leg)\b'
+      - '\b(slurred|slurring)\b.{0,15}\bspeech\b'
+      - "\\bcan'?t\\b.{0,20}\\b(speak|talk|understand)\\b"
+      - '\bnumb(ness)?\b.{0,30}\b(one side|left side|right side)\b'
+      - '\bsudden(ly)?\b.{0,30}\b(confus|vision|blind|blurred)'
+    source:
+      chunk_id: who_bec_S1_p130_s69_c5
+      document_id: who_bec
+      page: 130
+      section_path: "Approach to altered mental status > S: SIGNS AND SYMPTOMS"
+      source_excerpt: >
+        Change in mental status with weakness or sensory loss in one area of
+        the body, or problems with walking and balance, suggest that the
+        altered mental status comes from a cause in the brain itself, such
+        as a stroke or tumour.
+
+  - id: RF-BREATHING-001
+    label: "Severe difficulty breathing"
+    urgency_floor: CRITICAL
+    rationale: >
+      Inability to speak in full sentences, or breathlessness at rest, marks
+      respiratory distress requiring immediate attention in the source
+      material's ABCDE approach.
+    any_of:
+      - "\\b(can'?t|cannot|unable to)\\b.{0,25}\\bbreath"
+      - '\bstruggl(e|ing)\b.{0,20}\bbreath'
+      - '\bgasping\b'
+      - '\bchoking\b'
+      - '\bturning blue\b|\bblue lips\b|\bcyanos'
+      - "\\b(can'?t|cannot)\\b.{0,25}\\b(finish|complete|speak).{0,20}\\bsentence"
+    source:
+      chunk_id: who_bec_S1_p85_s40_c3
+      document_id: who_bec
+      page: 85
+      section_path: "Approach to difficulty in breathing > ABCDE: KEY ELEMENTS"
+      source_excerpt: >
+        CIRCULATION C Shock, heart attack, heart failure and severe infection
+        can all present with poor perfusion and difficulty in breathing.
+
+  - id: RF-PAEDS-001
+    label: "Paediatric danger signs"
+    urgency_floor: CRITICAL
+    rationale: >
+      The source material states children with danger signs need URGENT
+      attention and referral. Paediatric deterioration is faster and less
+      visible than adult, so the floor is set high on a weaker signal.
+    all_of:
+      - any_of:
+          - '\b(my|our)\b.{0,10}\b(child|baby|infant|son|daughter|toddler|newborn)\b'
+          - '\b(child|baby|infant|toddler|newborn)\b.{0,20}\b(is|has|was)\b'
+          - '\b\d{1,2}[- ]?(month|week|day)s?[- ]old\b'
+      - any_of:
+          - '\bstridor\b|\bdrooling\b'
+          - '\b(fast|rapid|hard)\b.{0,15}\bbreath'
+          - '\bnasal flaring\b|\bgrunting\b|\bindrawing\b|\bretraction'
+          - "\\b(won'?t|not|refus)\\b.{0,20}\\b(feed|drink|eat)\\b"
+          - '\b(floppy|limp|unresponsive|lethargic)\b'
+          - '\b(seizure|convuls|fitting)\b'
+    source:
+      chunk_id: who_bec_S1_p36_s12_c3
+      document_id: who_bec
+      page: 36
+      section_path: "The ABCDE and SAMPLE history approach > E"
+      source_excerpt: >
+        Children with danger signs need URGENT attention and referral/
+        handover to a provider able to provide advanced paediatric care.
+        Paediatric danger signs include: - Signs of airway obstruction
+        (stridor or drooling/unable to swallow saliva) - Increased breathing
+        effort (fast breathing, nasal flaring, grunting, chest indrawing or
+        retractions)
+
+  - id: RF-ALTERED-001
+    label: "Altered mental status"
+    urgency_floor: HIGH
+    rationale: >
+      Confusion, unresponsiveness, or fainting indicate a cause in the brain
+      or systemic compromise. Floor is HIGH rather than CRITICAL because the
+      lay descriptions are less specific than the cardiac/stroke patterns.
+    any_of:
+      - '\b(unconscious|unresponsive|passed out|blacked out|fainted)\b'
+      - '\b(confused|confusion|disoriented)\b'
+      - "\\b(won'?t|not)\\b.{0,15}\\bwake up\\b"
+      - '\bseizure\b|\bconvulsion\b|\bfitting\b'
+      - '\b(stiff|painful)\b.{0,15}\bneck\b.{0,30}\b(fever|light|headache)\b'
+    source:
+      chunk_id: who_bec_S1_p130_s69_c5
+      document_id: who_bec
+      page: 130
+      section_path: "Approach to altered mental status > S: SIGNS AND SYMPTOMS"
+      source_excerpt: >
+        Fluid that circulates around the brain also circulates around the
+        spinal cord, meaning any bleeding, inflammation or infection in the
+        brain (meningitis, encephalitis) can also cause neck pain and
+        stiffness.
+
+  - id: RF-BLEEDING-001
+    label: "Severe bleeding or shock signs"
+    urgency_floor: CRITICAL
+    rationale: >
+      Uncontrolled bleeding and shock signs are immediate life threats in
+      the source material's trauma and shock approaches.
+    any_of:
+      # Qualifier BEFORE the bleeding word ("heavy bleeding", "won't stop bleeding").
+      - "\\b(heavy|severe|profuse|won'?t stop|uncontrolled|lots of)\\b.{0,20}\\bbleed"
+      # ...and AFTER it ("the bleeding won't stop", "bleeding heavily"). Both
+      # orderings occur in natural patient phrasing; matching only one
+      # silently missed "the bleeding won't stop" until a test caught it.
+      - "\\bbleed(ing)?\\b.{0,25}\\b(heavily|badly|a lot|non[- ]?stop|won'?t stop|will not stop)\\b"
+      - '\bvomiting\b.{0,15}\bblood\b|\bcoughing up\b.{0,15}\bblood\b'
+      - '\bblood in\b.{0,15}\b(stool|vomit)\b'
+    source:
+      chunk_id: who_bec_S1_p55_s23_c6
+      document_id: who_bec
+      page: 55
+      section_path: "Approach to trauma > S: SIGNS AND SYMPTOMS"
+      source_excerpt: >
+        They may need to be watched for several hours even when they appear
+        well. Certain mechanisms are often associated with multiple
+        injuries, some of which may not be immediately apparent.

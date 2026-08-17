@@ -1,0 +1,359 @@
+"""Query orchestrator — composes Phases 6-12 into one pipeline call for
+the API layer. SPEC.md §F.1 POST /api/query.
+
+Pipeline: red-flag precheck -> prescribing check -> symptom extraction ->
+domain classification -> query rewrite -> multi-query retrieval+rerank ->
+Evidence Pack -> Sufficiency Gate -> (refusal | grounded generation ->
+citation resolution -> dose scan) -> risk assessment -> decision actions.
+
+Ordering is a safety property, not a style choice:
+
+- The red-flag precheck runs FIRST (SAF-6.1) so a possible emergency is
+  never delayed behind retrieval and 4+ sequential LLM calls. Its urgency
+  floor survives every later stage, including refusals.
+- The prescribing check short-circuits BEFORE the pipeline (SAF-7.3) —
+  a prescription request gets a referral, and spending a full pipeline
+  run to build an answer that must then be suppressed serves nobody.
+- The dose scan runs LAST, on generated output (SAF-7.2), because that is
+  the only point where the text a user would actually see exists.
+
+Every field returned corresponds to a subsystem that actually exists and
+was tested — trace stages are real, never fabricated to satisfy the
+frontend's fixed 13-stage design.
+"""
+
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass, field
+
+from qdrant_client import QdrantClient
+
+from app.llm.provider import LLMProvider, SchemaViolationError
+from app.prompts.domain_classifier import classify_domains
+from app.prompts.grounded_generator import generate_grounded_answer
+from app.prompts.query_rewriter import rewrite_query
+from app.prompts.symptom_extractor import extract_patient_state
+from app.services.rag.chunk_store import ChunkStore
+from app.services.rag.citation_resolver import ResolvedAnswer, resolve_and_validate
+from app.services.rag.evidence_pack import EvidencePack, build_evidence_pack
+from app.services.rag.retrieve_and_rerank import PipelineResult
+from app.services.rag.sufficiency_gate import SufficiencyResult, SufficiencyState, evaluate_sufficiency
+from app.services.decisions.decision_engine import DecisionActions, decide_actions
+from app.services.reranking.reranker import Reranker
+from app.services.risk.risk_engine import RiskAssessment, assess_risk
+from app.services.safety.prescribing_guard import (
+    PRESCRIBING_REFERRAL_MESSAGE,
+    DOSE_BLOCKED_MESSAGE,
+    DoseScanResult,
+    detect_prescription_request,
+    scan_for_dose_patterns,
+)
+from app.services.safety.red_flags import RedFlagResult, Urgency, check_red_flags
+from app.services.retrieval.bm25_index import BM25Index
+from app.services.retrieval.embedding_provider import SentenceTransformerProvider
+from app.services.retrieval.hybrid_search import RetrievalRun, hybrid_search_multi_query
+
+RERANK_INPUT_SIZE = 25
+FINAL_TOP_K = 5
+
+# SufficiencyState is the gate's internal vocabulary; the API's refusal
+# `reason` is a separate, narrower contract (SPEC.md §F / RefusalOut's
+# Literal). They overlap on OUT_OF_SCOPE but NOT on INSUFFICIENT, which
+# the API calls INSUFFICIENT_EVIDENCE — so the state's raw .value is not
+# a valid reason code and must be mapped, never passed through.
+REFUSAL_REASON_CODES = {
+    SufficiencyState.INSUFFICIENT: "INSUFFICIENT_EVIDENCE",
+    SufficiencyState.OUT_OF_SCOPE: "OUT_OF_SCOPE",
+}
+
+REFUSAL_MESSAGES = {
+    SufficiencyState.INSUFFICIENT: (
+        "I do not have sufficient evidence in the approved medical knowledge base to answer this "
+        "reliably. If your symptoms are severe, rapidly worsening, or you are concerned about an "
+        "emergency, seek professional medical evaluation."
+    ),
+    SufficiencyState.OUT_OF_SCOPE: (
+        "This question is outside the medical topics covered by this system's knowledge base. "
+        "Please consult a healthcare professional or an appropriate resource for this question."
+    ),
+}
+
+
+@dataclass(frozen=True)
+class TraceStage:
+    name: str
+    latency_ms: float
+    output: dict
+
+
+class TraceRecorder:
+    """Collects real per-stage timing/output as the pipeline runs. Only
+    stages that actually execute are recorded — there is no placeholder
+    entry for red_flag_check/risk/decision, since those subsystems don't
+    exist (PROJECT-STATE.md decision D5; Phase 15 not started)."""
+
+    def __init__(self):
+        self.stages: list[TraceStage] = []
+        self._stage_start: float | None = None
+
+    def start(self) -> None:
+        self._stage_start = time.perf_counter()
+
+    def record(self, name: str, output: dict) -> None:
+        assert self._stage_start is not None, "start() must be called before record()"
+        latency_ms = (time.perf_counter() - self._stage_start) * 1000
+        self.stages.append(TraceStage(name=name, latency_ms=latency_ms, output=output))
+        self._stage_start = time.perf_counter()
+
+    def as_dict(self) -> dict:
+        return {"stages": [{"name": s.name, "latency_ms": s.latency_ms, "output": s.output} for s in self.stages]}
+
+
+@dataclass(frozen=True)
+class OrchestratorResult:
+    request_id: str
+    status: str  # "success" | "refusal"
+    supported_domain: bool
+    domains: list[str]
+    patient_state: dict | None
+    resolved_answer: ResolvedAnswer | None
+    refusal_reason: str | None
+    refusal_message: str | None
+    pack: EvidencePack | None
+    sufficiency: SufficiencyResult | None
+    retrieval: RetrievalRun | None
+    latency_ms: float
+    trace: dict = field(default_factory=dict)
+    # Safety layer (Phase 14/15). red_flags is always populated — the
+    # precheck runs on every request before anything else. risk/decision
+    # are populated once urgency is assessable.
+    red_flags: RedFlagResult | None = None
+    risk: RiskAssessment | None = None
+    decision: DecisionActions | None = None
+    dose_block: DoseScanResult | None = None
+
+
+def run_query(
+    client: QdrantClient,
+    config_id: str | None,
+    embedding_provider: SentenceTransformerProvider,
+    bm25: BM25Index,
+    chunk_store: ChunkStore,
+    reranker: Reranker,
+    llm: LLMProvider,
+    patient_message: str,
+    include_trace: bool = False,
+) -> OrchestratorResult:
+    t0 = time.perf_counter()
+    request_id = str(uuid.uuid4())
+    trace = TraceRecorder()
+    trace.start()
+
+    # SAF-6.1 — BEFORE anything expensive. A possible emergency must not
+    # wait on retrieval plus four sequential LLM calls.
+    red_flags = check_red_flags(patient_message)
+    trace.record("red_flag_check", {
+        "triggered": red_flags.triggered,
+        "urgency_floor": red_flags.urgency_floor.value,
+        "rules_version": red_flags.rules_version,
+        "matches": [
+            {"rule_id": m.rule_id, "label": m.label, "matched_text": list(m.matched_text),
+             "source_chunk_id": m.source.chunk_id}
+            for m in red_flags.matches
+        ],
+    })
+
+    # SAF-7.3 — a prescription request returns a referral, not a partial
+    # answer. Short-circuits before the pipeline: there is no version of
+    # this answer the system is permitted to give, so building one first
+    # would only risk leaking it.
+    if detect_prescription_request(patient_message):
+        trace.record("prescribing_check", {"prescription_request_detected": True, "action": "referral"})
+        risk = assess_risk(patient_message, red_flags, "OUT_OF_SCOPE", 0)
+        decision = decide_actions(risk.urgency, "OUT_OF_SCOPE", 0, is_refusal=True)
+        return OrchestratorResult(
+            request_id=request_id, status="refusal",
+            supported_domain=False, domains=[], patient_state=None,
+            resolved_answer=None, refusal_reason="PRESCRIBING_REQUEST",
+            refusal_message=PRESCRIBING_REFERRAL_MESSAGE,
+            pack=None, sufficiency=None, retrieval=None,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            trace=trace.as_dict() if include_trace else {},
+            red_flags=red_flags, risk=risk, decision=decision,
+        )
+
+    patient_state = extract_patient_state(llm, patient_message)
+    trace.record("extraction", {"symptoms": patient_state.symptoms, "missing_information": patient_state.missing_information})
+
+    domain_classification = classify_domains(llm, patient_state)
+    predicted_domains = domain_classification.domains
+    trace.record("domain_predict", {"domains": predicted_domains, "reasoning": domain_classification.reasoning})
+
+    try:
+        rewrite_result = rewrite_query(llm, patient_message)
+        queries = [patient_message] + rewrite_result.variants
+        trace.record("query_rewrite", {"variants": rewrite_result.variants})
+    except SchemaViolationError as e:
+        # A rewrite failure must not abort the whole query — fall back to
+        # the original message alone rather than propagate.
+        queries = [patient_message]
+        trace.record("query_rewrite", {"variants": [], "fallback_reason": str(e)})
+
+    retrieval = hybrid_search_multi_query(
+        client, config_id, embedding_provider, bm25, queries, request_id,
+        top_k=RERANK_INPUT_SIZE, predicted_domains=predicted_domains,
+    )
+    trace.record(
+        "retrieval",
+        {
+            "query_variants_used": len(queries),
+            "candidates": len(retrieval.results),
+            "suppressed_duplicates": retrieval.suppressed_duplicate_count,
+        },
+    )
+
+    candidates = []
+    for r in retrieval.results:
+        record = chunk_store.get(r.chunk_id)
+        if record is not None:
+            candidates.append((r.chunk_id, record.text))
+    rerank_run = reranker.rerank(patient_message, candidates, top_k=FINAL_TOP_K)
+    trace.record("rerank", {"rerank_used": rerank_run.rerank_used, "fallback_reason": rerank_run.fallback_reason, "top_k": len(rerank_run.results)})
+
+    # PipelineResult ties retrieval+rerank together in the shape
+    # build_evidence_pack expects, reusing its assembly logic rather than
+    # duplicating it — this orchestrator runs multi-query retrieval
+    # (hybrid_search_multi_query) directly instead of calling
+    # retrieve_and_rerank.retrieve_and_rerank() (which only does
+    # single-query retrieval), so the PipelineResult is built here instead.
+    pipeline_result = PipelineResult(
+        query_id=request_id, retrieval=retrieval, rerank=rerank_run,
+        total_latency_ms=(time.perf_counter() - t0) * 1000,
+    )
+    pack = build_evidence_pack(pipeline_result, chunk_store, rewritten_queries=queries[1:])
+
+    sufficiency = evaluate_sufficiency(pack)
+    trace.record("sufficiency", {"state": sufficiency.state.value, "signal_used": sufficiency.signal_used, "top_score": sufficiency.top_score, "tau_high": sufficiency.tau_high, "tau_low": sufficiency.tau_low})
+    supported_domain = bool(predicted_domains)
+
+    def _trace_out() -> dict:
+        return trace.as_dict() if include_trace else {}
+
+    def _safety_outcome(is_refusal: bool) -> tuple[RiskAssessment, DecisionActions]:
+        """Risk + decision for whichever exit path is taken. Centralized so
+        no return path can silently omit them and drop the red-flag floor
+        (SAF-6.2) — a refusal on a CRITICAL red flag must still escalate."""
+        risk = assess_risk(
+            patient_message, red_flags, sufficiency.state.value,
+            pack.support_count, tuple(predicted_domains),
+        )
+        decision = decide_actions(
+            risk.urgency, sufficiency.state.value, pack.support_count, is_refusal=is_refusal,
+        )
+        trace.record("risk", {
+            "urgency": risk.urgency.value, "assessed_urgency": risk.assessed_urgency.value,
+            "floor_applied": risk.floor_applied, "confidence": risk.confidence,
+            "factors": [f.code for f in risk.factors],
+        })
+        trace.record("decision", {
+            "recommend_emergency_care": decision.recommend_emergency_care,
+            "recommend_urgent_care": decision.recommend_urgent_care,
+            "suppress_wellness_content": decision.suppress_wellness_content,
+            "show_followup_question": decision.show_followup_question,
+        })
+        return risk, decision
+
+    if sufficiency.state in (SufficiencyState.INSUFFICIENT, SufficiencyState.OUT_OF_SCOPE):
+        risk, decision = _safety_outcome(is_refusal=True)
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return OrchestratorResult(
+            request_id=request_id, status="refusal", supported_domain=supported_domain,
+            domains=predicted_domains, patient_state=patient_state.model_dump(),
+            resolved_answer=None, refusal_reason=REFUSAL_REASON_CODES[sufficiency.state],
+            refusal_message=REFUSAL_MESSAGES[sufficiency.state], pack=pack,
+            sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
+            trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
+        )
+
+    try:
+        generation = generate_grounded_answer(llm, patient_message, pack)
+        trace.record("generation", {"statements": len(generation.statements), "insufficient_evidence": generation.insufficient_evidence})
+    except SchemaViolationError as e:
+        trace.record("generation", {"failed": True, "reason": str(e)})
+        risk, decision = _safety_outcome(is_refusal=True)
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return OrchestratorResult(
+            request_id=request_id, status="refusal", supported_domain=supported_domain,
+            domains=predicted_domains, patient_state=patient_state.model_dump(),
+            resolved_answer=None, refusal_reason="INSUFFICIENT_EVIDENCE",
+            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT], pack=pack,
+            sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
+            trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
+        )
+
+    resolved = resolve_and_validate(generation, pack, chunk_store)
+    trace.record("validation", {"dropped": len(resolved.dropped), "statements_kept": len(resolved.statements), "excerpts_kept": len(resolved.excerpts)})
+
+    if resolved.fell_back_to_refusal:
+        risk, decision = _safety_outcome(is_refusal=True)
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return OrchestratorResult(
+            request_id=request_id, status="refusal", supported_domain=supported_domain,
+            domains=predicted_domains, patient_state=patient_state.model_dump(),
+            resolved_answer=resolved, refusal_reason="INSUFFICIENT_EVIDENCE",
+            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT], pack=pack,
+            sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
+            trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
+        )
+
+    # SAF-7.2 — scan the text a user would actually see. This runs on the
+    # RESOLVED output (post-validation), because that is the final content;
+    # scanning the raw generation would miss nothing but could block on
+    # text that validation was about to drop anyway.
+    scan_targets = {f"statement[{i + 1}]": s.text for i, s in enumerate(resolved.statements)}
+    # ResolvedExcerpt's field is `quote`, not `text` — the verbatim span
+    # the Citation Resolver validated against the source chunk.
+    scan_targets.update({f"excerpt[{i + 1}]": e.quote for i, e in enumerate(resolved.excerpts)})
+    # EvidenceItem carries chunk_id, not document_id; resolve the real
+    # document through the Chunk Store so a block can name which source
+    # document the dosing text came from.
+    source_docs = set()
+    for item in pack.evidence:
+        record = chunk_store.get(item.chunk_id)
+        if record is not None:
+            source_docs.add(record.document_id)
+    dose_scan = scan_for_dose_patterns(scan_targets, source_documents=tuple(sorted(source_docs)))
+    trace.record("dose_scan", {
+        "blocked": dose_scan.blocked,
+        "matches": [{"kind": m.kind, "location": m.location} for m in dose_scan.matches],
+    })
+
+    if dose_scan.blocked:
+        # SAF-7.1/7.4 — enforcement in code. The answer is suppressed
+        # entirely rather than redacted: partially-scrubbed dosing text is
+        # more dangerous than none, since a user may reconstruct or
+        # misread what remains.
+        risk, decision = _safety_outcome(is_refusal=True)
+        latency_ms = (time.perf_counter() - t0) * 1000
+        return OrchestratorResult(
+            request_id=request_id, status="refusal", supported_domain=supported_domain,
+            domains=predicted_domains, patient_state=patient_state.model_dump(),
+            resolved_answer=None, refusal_reason="PRESCRIBING_REQUEST",
+            refusal_message=DOSE_BLOCKED_MESSAGE, pack=pack,
+            sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
+            trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
+            dose_block=dose_scan,
+        )
+
+    risk, decision = _safety_outcome(is_refusal=False)
+    latency_ms = (time.perf_counter() - t0) * 1000
+    return OrchestratorResult(
+        request_id=request_id, status="success", supported_domain=supported_domain,
+        domains=predicted_domains, patient_state=patient_state.model_dump(),
+        resolved_answer=resolved, refusal_reason=None, refusal_message=None, pack=pack,
+        sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
+        trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
+        dose_block=dose_scan,
+    )

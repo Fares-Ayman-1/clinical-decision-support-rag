@@ -1,0 +1,56 @@
+{
+  "name": "evidence-grounded-clinical-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173 --strictPort",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@fontsource/hanken-grotesk": "5.2.6",
+    "@fontsource/jetbrains-mono": "5.2.6",
+    "@fontsource/sora": "5.2.6",
+    "lucide-react": "0.468.0",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "4.0.17"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.33.0",
+    "@playwright/test": "1.55.1",
+    "@tailwindcss/vite": "4.1.12",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/jest-dom": "6.6.4",
+    "@testing-library/react": "16.3.0",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "22.17.2",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "@vitest/coverage-v8": "3.2.7",
+    "eslint": "9.33.0",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.4.20",
+    "globals": "16.3.0",
+    "jsdom": "26.1.0",
+    "msw": "2.10.5",
+    "tailwindcss": "4.1.12",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.39.1",
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  }
+}

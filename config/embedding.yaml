@@ -1,0 +1,45 @@
+# Embedding configuration — ARCHITECTURE.md §7.
+#
+# ARCHITECTURE.md §7.3 calls for benchmarking two candidates (E5/BGE/GTE
+# family) and deciding by Day 2 midday. Only one is actually usable in this
+# sandbox: sentence-transformers/all-MiniLM-L6-v2 is the only model already
+# cached locally: any other candidate requires a fresh download from the
+# HF Hub, which fails here with an SSL cert error consistent with a blocked
+# proxy (confirmed by a direct download attempt against BAAI/bge-small-en-v1.5).
+# The two-candidate benchmark is deferred to TODO-PRODUCTION.md and
+# re-attempted once network access is available — this file's schema
+# already supports multiple entries so a second candidate slots in with no
+# code change, just a new block below plus a re-run of
+# scripts/build_index.py.
+#
+# max_seq_length is load-bearing, not decorative: it is genuinely 256 for
+# this model (confirmed via the loaded tokenizer's model_max_length), not
+# the 512 a generic BERT-family assumption would suggest. Both existing
+# chunk configs (A: 400-600 "tokens", B: 250-350 "tokens" — measured in the
+# OLD provisional word-count approximation) would be 70.2% / 65.2%
+# truncated against this real ceiling. This is why the chunking benchmark's
+# screening sizes (config/chunking.yaml benchmark_configs) are redesigned
+# around 256, not the originally planned 250-1000 range.
+
+primary:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  dim: 384
+  max_seq_length: 256
+  query_prefix: ""     # MiniLM is a symmetric model — no query:/passage: prefix required
+  passage_prefix: ""
+  normalize: true
+  distance: cosine
+
+# Deferred — not usable in this sandbox (see note above). Kept as a
+# documented placeholder so the intended two-candidate design is visible
+# and the second slot is easy to fill in once network access allows it.
+# alt:
+#   name: "BAAI/bge-small-en-v1.5"
+#   dim: 384
+#   max_seq_length: 512
+#   query_prefix: "Represent this sentence for searching relevant passages: "
+#   passage_prefix: ""
+#   normalize: true
+#   distance: cosine
+
+embedding_version: "minilm-l6-v2-1"

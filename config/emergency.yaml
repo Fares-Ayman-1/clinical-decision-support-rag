@@ -1,0 +1,50 @@
+# Emergency contact information — SPEC.md SAF-6.5.
+#
+# Emergency numbers MUST come from configuration, never from the LLM. A
+# hallucinated emergency number is among the highest-severity failures
+# this system could produce, so the number is never generated, never
+# retrieved, and never passed through a prompt — it is read from here and
+# injected by the server.
+#
+# SAF-6.6/6.7: the system MUST NOT place a call or send a message
+# autonomously, and every external action requires explicit user
+# confirmation. This file supplies DISPLAY text only. Nothing in the
+# codebase dials, and no response schema field can trigger a side effect
+# (SAF-9.4).
+
+# The deployment's locale. A wrong number here is worse than no number, so
+# the default is deliberately generic rather than guessing a country.
+default_locale: "generic"
+
+locales:
+  generic:
+    label: "your local emergency number"
+    number: null
+    instruction: >
+      Call your local emergency number or go to the nearest emergency
+      department immediately.
+
+  # Add real locales at deployment time. Kept as examples rather than
+  # activated, so nothing ships a number that is wrong for the user.
+  # us:
+  #   label: "911"
+  #   number: "911"
+  #   instruction: "Call 911 or go to the nearest emergency department immediately."
+  # uk:
+  #   label: "999"
+  #   number: "999"
+  #   instruction: "Call 999 or go to the nearest emergency department immediately."
+  # eg:
+  #   label: "123"
+  #   number: "123"
+  #   instruction: "Call 123 or go to the nearest emergency department immediately."
+
+# Copy used when a red flag fires. CRITICAL responses MUST lead with the
+# emergency instruction (SAF-6.3) — this is that lead text.
+critical_lead: >
+  Based on what you have described, this may be a medical emergency.
+  Seek emergency care now — do not wait to see whether symptoms improve.
+
+high_lead: >
+  Based on what you have described, you should be assessed by a healthcare
+  professional urgently, today if possible.

@@ -1,0 +1,50 @@
+# LLM provider configuration — ARCHITECTURE.md G9 (replaceability), PLAN.md Phase 11.
+#
+# Three provider kinds share one LLMProvider interface (backend/app/llm/provider.py):
+#   - anthropic:    native Anthropic SDK, used for the final/production model.
+#   - openai:       native OpenAI SDK, real OpenAI models.
+#   - ollama:       OpenAI-compatible endpoint via the OpenAI SDK with a custom
+#                   base_url — covers local models, Ollama Cloud by API key, and
+#                   Ollama Cloud proxied by a signed-in local daemon.
+#
+# Actual provider/model/key are read from environment variables (.env), never
+# hardcoded here — this file documents the shape and the swap path.
+#
+# NOTE: an `openrouter` provider existed during early MVP development and was
+# removed 2026-08-17 after the switch to Ollama. load_llm_provider() now raises
+# on LLM_PROVIDER=openrouter rather than silently accepting a dead config.
+
+provider: ${LLM_PROVIDER}          # anthropic | openai | ollama
+model: ${LLM_MODEL}
+api_key: ${LLM_API_KEY}            # required except for ollama
+
+# ollama only. Ignored for anthropic/openai. The provider auto-selects a
+# base_url when these are unset: ollama.com when an OLLAMA_API_KEY is present,
+# otherwise the local daemon.
+#   OLLAMA_API_KEY   — https://ollama.com/settings/keys. Takes precedence over
+#                      LLM_API_KEY so a stale key from a previously-configured
+#                      provider can never be sent to Ollama by mistake.
+#   OLLAMA_BASE_URL  — override; set to the local daemon to force daemon routing.
+ollama_cloud_base_url: "https://ollama.com/v1"
+ollama_local_base_url: "http://localhost:11434/v1"
+
+# PLAN.md Phase 11: temperature 0.1, structured output, timeout, one retry.
+temperature: 0.1
+# Hosted vendors (anthropic/openai) use 30s. Ollama defaults to 300s: this
+# pipeline issues 4+ sequential structured calls per query, and local CPU
+# inference plus cold cloud starts both routinely exceed 30s per call, where a
+# short timeout surfaces as an APITimeoutError that reads like an outage.
+timeout_seconds: 30
+ollama_timeout_seconds: 300
+max_retries_on_schema_violation: 1
+
+# Model availability measured against a real free-tier Ollama key (2026-08-17):
+#   reachable  — gpt-oss:120b (current), gpt-oss:20b, minimax-m3
+#   subscription required — qwen3.5:397b, glm-5.2
+#   subscription + extra purchased usage credits — kimi-k3
+#
+# Swap path when moving to Claude for production:
+#   1. Set LLM_PROVIDER=anthropic, LLM_MODEL=claude-sonnet-5 (or current) in .env
+#   2. Set LLM_API_KEY to a real Anthropic key
+#   3. No code change — load_llm_provider() reads these vars and picks
+#      AnthropicProvider automatically.

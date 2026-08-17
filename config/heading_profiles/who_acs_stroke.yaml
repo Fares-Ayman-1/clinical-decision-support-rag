@@ -1,0 +1,57 @@
+# Heading profile for who_acs_stroke — hand-tuned per docs/corpus-profile.md.
+# Basis: direct font-size inspection confirmed two clean heading tiers with no
+# ambiguity against the 11pt body text.
+
+document_id: who_acs_stroke
+profile_type: hand_tuned
+
+body_text_size: 11.0
+
+heading_levels:
+  - level: chapter          # -> section
+    font_size_min: 22.0     # observed: 24.0pt exactly
+    font_size_max: 26.0
+    bold_required: false
+    # Chapter titles are numbered, e.g. "1 \t" + "Introduction" as two spans
+    # on the same line. Join adjacent same-size spans on one line into a
+    # single heading string; strip a leading "N \t" number token into a
+    # separate `chapter_number` field rather than leaving it in the title text.
+    numbering_pattern: '^\d+\s*\t?'
+
+  - level: subsection        # -> subsection
+    font_size_min: 13.0      # observed: 14.0pt exactly
+    font_size_max: 15.0
+    bold_required: false
+    # Subsections are numbered "N.M.\t", e.g. "4.1.\tGoals" — a different
+    # pattern from the chapter level's "N \t". Confirmed against real Phase 3
+    # output during Phase 4 verification (front-matter subsections like
+    # "Introduction" carry no numbering at all, so the pattern only strips
+    # when present).
+    numbering_pattern: '^\d+\.\d+\.\s*\t?\s*'
+
+# Front-matter sections (Acknowledgements, Abbreviations, Executive Summary,
+# Contents, Figures/Tables/Boxes lists) use the same 24pt/14pt sizes as real
+# chapters. Exclude by heading text match — these are boilerplate per RAG-1.5 /
+# the Phase 4 boilerplate filter, not clinical content.
+exclude_headings:
+  - "Contents"
+  - "Figures"
+  - "Tables"
+  - "Boxes"
+  - "Acknowledgements"
+  - "Financial support"
+  - "Abbreviations and acronyms"
+  - "Executive summary"
+  - "References"
+
+footer:
+  # No top header on this document. Footer carries page number + running
+  # section title around y=808 (page height ~842pt).
+  page_number_position: bottom
+  running_title_position: bottom
+  strip_zone_from_bottom_pt: 45
+
+layout:
+  columns: 1
+
+known_hazards: []   # none structural — cleanest document in the corpus, see corpus-profile.md
