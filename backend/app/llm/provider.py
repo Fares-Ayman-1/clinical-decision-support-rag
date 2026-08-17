@@ -39,9 +39,12 @@ use the OS's normal trust store there too).
 from __future__ import annotations
 
 import json
+import logging
 import os
+import random
+import time
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Callable, Protocol, TypeVar
 
 try:
     import truststore
@@ -53,6 +56,9 @@ except ImportError:
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+R = TypeVar("R")
+
+logger = logging.getLogger(__name__)
 
 
 class SchemaViolationError(Exception):
@@ -60,6 +66,125 @@ class SchemaViolationError(Exception):
     validation after exhausting the retry budget. Callers (prompts) decide
     what this means for their own flow — e.g. the grounded generator
     treats it as INSUFFICIENT rather than fabricating a response."""
+
+
+class TransientProviderError(Exception):
+    """A provider call that failed for reasons unrelated to the prompt —
+    connection reset, timeout, rate limit, upstream 5xx — after the retry
+    budget was spent.
+
+    Deliberately distinct from SchemaViolationError, which means the model
+    answered but the answer was malformed. Callers that degrade gracefully
+    on a bad schema (e.g. the query rewriter falling back to the original
+    query) must NOT silently swallow this one: it means the run is
+    incomplete, not that the model declined. An evaluation harness that
+    cannot tell those apart reports metrics over a denominator it did not
+    actually measure.
+    """
+
+
+# Application-level retry sits ON TOP of the SDK's own retries, which are
+# real but far too fast to help here. openai 1.99.9 uses
+# INITIAL_RETRY_DELAY=0.5 / MAX_RETRY_DELAY=8.0 with max_retries=2, so its
+# entire budget is spent inside ~2 seconds. Ollama Cloud's free tier burst
+# limiter holds far longer than that: an eval run over 25 queries saw the
+# SDK exhaust its retries and raise APIConnectionError on 19 consecutive
+# queries, while the same endpoint answered normally when retried by hand a
+# minute later. These delays are sized to outlast a cooldown of that scale.
+_RETRY_BASE_DELAY = 2.0
+_RETRY_MAX_DELAY = 60.0
+_DEFAULT_MAX_ATTEMPTS = 5
+
+
+def _retry_delay(attempt: int) -> float:
+    """Exponential backoff with full jitter.
+
+    Jitter is not cosmetic here: the orchestrator issues its query-rewrite
+    call concurrently with symptom extraction, so two threads throttled by
+    the same burst limit would otherwise retry in lockstep and re-trigger
+    it immediately.
+    """
+    delay = min(_RETRY_BASE_DELAY * (2.0**attempt), _RETRY_MAX_DELAY)
+    return delay * (0.5 + 0.5 * random.random())
+
+
+def _call_with_retry(
+    fn: Callable[[], R],
+    *,
+    retryable: tuple[type[BaseException], ...],
+    fatal: tuple[type[BaseException], ...],
+    max_attempts: int,
+    description: str,
+) -> R:
+    """Retries `fn` on transient transport failures only.
+
+    `fatal` is checked BEFORE `retryable`, and that ordering is
+    load-bearing rather than defensive. In the openai SDK,
+    APITimeoutError subclasses APIConnectionError, and
+    AuthenticationError/BadRequestError subclass APIStatusError alongside
+    RateLimitError — so an except-clause in the wrong order would either
+    retry a bad API key five times or refuse to retry a timeout.
+
+    Schema violations are deliberately NOT handled here. They are a
+    different failure mode needing a different cure: a schema retry must
+    re-prompt with the validation error appended (the model needs telling
+    what it got wrong), whereas a connection retry must replay the
+    identical request after a delay. Conflating them would either spend
+    the schema budget on network errors or send a corrective prompt to a
+    server that never saw the original request.
+    """
+    last_error: BaseException | None = None
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except fatal:
+            raise
+        except retryable as e:
+            last_error = e
+            if attempt == max_attempts - 1:
+                break
+            delay = _retry_delay(attempt)
+            logger.warning(
+                "%s failed with %s (attempt %d/%d); retrying in %.1fs",
+                description, type(e).__name__, attempt + 1, max_attempts, delay,
+            )
+            time.sleep(delay)
+    raise TransientProviderError(
+        f"{description} failed after {max_attempts} attempt(s): "
+        f"{type(last_error).__name__}: {last_error}"
+    ) from last_error
+
+
+def _complete_structured_impl(
+    complete: Callable[[str, str, float], CompletionResult],
+    system: str,
+    user: str,
+    schema: type[T],
+    temperature: float,
+    max_retries: int,
+) -> T:
+    """The schema-retry loop, shared by every provider.
+
+    Connection retry lives one level down, inside each provider's
+    complete(), so by the time a result reaches here it is a response the
+    server actually produced — every failure this loop sees is genuinely
+    the model's fault, and re-prompting is the right cure.
+    """
+    prompt = user + _schema_instruction(schema)
+    last_error: Exception | None = None
+    for _ in range(max_retries + 1):
+        result = complete(system, prompt, temperature)
+        try:
+            return _parse_structured(result.text, schema)
+        except (json.JSONDecodeError, ValidationError) as e:
+            last_error = e
+            prompt = (
+                user + _schema_instruction(schema)
+                + f"\n\nYour previous response failed validation: {e}. Return ONLY valid JSON."
+            )
+    raise SchemaViolationError(
+        f"Schema validation failed after {max_retries + 1} attempt(s): {last_error}"
+    )
 
 
 @dataclass(frozen=True)
@@ -100,42 +225,56 @@ def _parse_structured(text: str, schema: type[T]) -> T:
 
 
 class AnthropicProvider:
-    def __init__(self, model: str, api_key: str, timeout_seconds: float = 30.0):
+    def __init__(
+        self, model: str, api_key: str, timeout_seconds: float = 30.0,
+        max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+    ):
         import anthropic
 
         self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout_seconds)
         self._model = model
+        self._max_attempts = max_attempts
+        self._retryable = (
+            anthropic.APIConnectionError,  # APITimeoutError subclasses this
+            anthropic.RateLimitError,
+            anthropic.InternalServerError,
+        )
+        # Retrying these can never help and only multiplies the damage: a
+        # bad key stays bad, a malformed request stays malformed.
+        self._fatal = (
+            anthropic.AuthenticationError,
+            anthropic.BadRequestError,
+            anthropic.PermissionDeniedError,
+            anthropic.NotFoundError,
+        )
 
     def complete(self, system: str, user: str, temperature: float = 0.1) -> CompletionResult:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=4096,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text")
-        return CompletionResult(
-            text=text, model=self._model,
-            input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
+        def _once() -> CompletionResult:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=4096,
+                temperature=temperature,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = "".join(block.text for block in response.content if block.type == "text")
+            return CompletionResult(
+                text=text, model=self._model,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
+
+        return _call_with_retry(
+            _once, retryable=self._retryable, fatal=self._fatal,
+            max_attempts=self._max_attempts, description=f"{self._model} completion",
         )
 
     def complete_structured(
         self, system: str, user: str, schema: type[T], temperature: float = 0.1, max_retries: int = 1
     ) -> T:
-        prompt = user + _schema_instruction(schema)
-        last_error: Exception | None = None
-        for attempt in range(max_retries + 1):
-            result = self.complete(system, prompt, temperature)
-            try:
-                return _parse_structured(result.text, schema)
-            except (json.JSONDecodeError, ValidationError) as e:
-                last_error = e
-                prompt = (
-                    user + _schema_instruction(schema)
-                    + f"\n\nYour previous response failed validation: {e}. Return ONLY valid JSON."
-                )
-        raise SchemaViolationError(f"Schema validation failed after {max_retries + 1} attempt(s): {last_error}")
+        return _complete_structured_impl(
+            self.complete, system, user, schema, temperature, max_retries
+        )
 
 
 class _OpenAICompatibleProvider:
@@ -145,47 +284,63 @@ class _OpenAICompatibleProvider:
     vendor is a subclass with a base_url, not a new implementation."""
 
     def __init__(self, model: str, api_key: str, base_url: str | None, timeout_seconds: float = 30.0,
-                 extra_headers: dict[str, str] | None = None):
-        from openai import OpenAI
+                 extra_headers: dict[str, str] | None = None,
+                 max_attempts: int = _DEFAULT_MAX_ATTEMPTS):
+        from openai import (
+            APIConnectionError,
+            AuthenticationError,
+            BadRequestError,
+            InternalServerError,
+            NotFoundError,
+            OpenAI,
+            PermissionDeniedError,
+            RateLimitError,
+        )
 
         self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_seconds)
         self._model = model
         self._extra_headers = extra_headers or {}
+        self._max_attempts = max_attempts
+        # APITimeoutError subclasses APIConnectionError, so it is covered
+        # without being named. RateLimitError is retryable here even though
+        # this endpoint returns no x-ratelimit-*/retry-after headers to
+        # guide the delay — which is exactly why the backoff is a fixed
+        # schedule rather than header-driven.
+        self._retryable = (APIConnectionError, RateLimitError, InternalServerError)
+        self._fatal = (
+            AuthenticationError, BadRequestError, PermissionDeniedError, NotFoundError,
+        )
 
     def complete(self, system: str, user: str, temperature: float = 0.1) -> CompletionResult:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            extra_headers=self._extra_headers or None,
-        )
-        text = response.choices[0].message.content or ""
-        usage = response.usage
-        return CompletionResult(
-            text=text, model=self._model,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.completion_tokens if usage else None,
+        def _once() -> CompletionResult:
+            response = self._client.chat.completions.create(
+                model=self._model,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                extra_headers=self._extra_headers or None,
+            )
+            text = response.choices[0].message.content or ""
+            usage = response.usage
+            return CompletionResult(
+                text=text, model=self._model,
+                input_tokens=usage.prompt_tokens if usage else None,
+                output_tokens=usage.completion_tokens if usage else None,
+            )
+
+        return _call_with_retry(
+            _once, retryable=self._retryable, fatal=self._fatal,
+            max_attempts=self._max_attempts, description=f"{self._model} completion",
         )
 
     def complete_structured(
         self, system: str, user: str, schema: type[T], temperature: float = 0.1, max_retries: int = 1
     ) -> T:
-        prompt = user + _schema_instruction(schema)
-        last_error: Exception | None = None
-        for attempt in range(max_retries + 1):
-            result = self.complete(system, prompt, temperature)
-            try:
-                return _parse_structured(result.text, schema)
-            except (json.JSONDecodeError, ValidationError) as e:
-                last_error = e
-                prompt = (
-                    user + _schema_instruction(schema)
-                    + f"\n\nYour previous response failed validation: {e}. Return ONLY valid JSON."
-                )
-        raise SchemaViolationError(f"Schema validation failed after {max_retries + 1} attempt(s): {last_error}")
+        return _complete_structured_impl(
+            self.complete, system, user, schema, temperature, max_retries
+        )
 
 
 class OpenAIProvider(_OpenAICompatibleProvider):

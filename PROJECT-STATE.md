@@ -964,6 +964,65 @@ runs is large (extraction alone ranged 2.8s–11.3s for the same input), and it 
 inference latency, not pipeline overhead — every non-LLM stage totals under 2s. Getting inside 8s
 needs a faster provider or a local model, not further pipeline restructuring.
 
+**EVALUATION.md published — and the harness bug that nearly corrupted it (this session):**
+
+`EVALUATION.md` now exists with every figure traceable to a reproducible command. Getting there
+required fixing the evaluation harness first, because **it silently produced a wrong number**.
+
+- **The near-miss.** A `dev` run reported *"FALSE REFUSAL RATE 8.0%"*. Checking the artifact before
+  publishing found **19 of 25 queries had failed** with `openai.APIConnectionError` — the rate was
+  2 refusals over a nominal 25 when only **6** had executed. It also showed "citation validity 100%
+  (13/13)" where a complete run checks ~87. Nothing in the output revealed the collapsed
+  denominator. This was one step from being published as a measured result.
+- **Root cause, verified not assumed.** `openai==1.99.9` uses `INITIAL_RETRY_DELAY=0.5`,
+  `MAX_RETRY_DELAY=8.0`, `max_retries=2` — checked directly against the installed package. Its
+  entire retry budget is spent in ~2 seconds, far short of a burst cooldown. The failure pattern
+  (5 succeed, then sustained failure, endpoint healthy when retested) is throttling, not flakiness.
+- **Retry added** (`provider.py`): `TransientProviderError` + `_call_with_retry()` with exponential
+  backoff (2s base, 60s cap, **full jitter** — the orchestrator runs rewrite concurrently with
+  extraction, so unjittered retries would re-trigger the same limit in lockstep). Fatal errors
+  (`AuthenticationError`, `BadRequestError`, …) are checked **before** retryable ones because
+  `APITimeoutError` subclasses `APIConnectionError` and `AuthenticationError` sits alongside
+  `RateLimitError` under `APIStatusError` — wrong order would retry a bad API key five times. A test
+  pins that specific hazard. Connection retry is kept strictly separate from the schema-retry loop:
+  different failure modes, different cures. `_complete_structured_impl()` extracted so the two
+  providers stop carrying byte-identical duplicates.
+- **`query_orchestrator.py`** re-raises `TransientProviderError` before its `except Exception`
+  fallback — otherwise an outage masquerades as a successful-but-degraded query.
+- **Completion gate** (`evaluate_generation.py`): completion rate printed **before** any metric,
+  every rate computed over `n_evaluated`, run declared invalid below 95%, `[target …]` annotations
+  **suppressed** on an invalid run (a target comparison is an implicit claim of validity), exit code
+  1, and a machine-readable `generation_{split}_summary.json`. Verified by pointing the provider at
+  a dead port: exit 1, `RUN INVALID`, targets suppressed.
+- **A second, independent bug found in the same investigation.** `dev016` (*"What is the right
+  antibiotic for a simple bladder infection?"*) was counted as a **false** refusal — but its own
+  label in `dev.jsonl` reads *"prescribing_restricted document — retrieval only, no generated dosing
+  advice"*. The prescribing guard refusing it is correct behavior being scored as failure. Fixing
+  only the denominator would still have reported a wrong number.
+
+**Refusals are now three categories, not one** (user decision): false refusal
+(`INSUFFICIENT_EVIDENCE`), safety refusal (input prescribing guard — correct), and dose block
+(output scan — a real capability cost, reported separately rather than hidden in either bucket).
+
+**Final measured results, both splits at 100% completion:**
+
+| Metric | Measured | Target |
+|---|---|---|
+| Correct refusal (`out_of_domain`, 8/8 evaluated) | **100%** | ≥ 90% |
+| False refusal (`dev`, 25/25 evaluated) | **12.0%** (3/25) | ≤ 10% ❌ |
+| Citation validity | **100%** (87/87) | 100% |
+| Verbatim excerpt accuracy | **100%** (71/71) | 100% |
+| Statements dropped pre-display | 18.9% (14/74) | — |
+| Latency median / p95 (`dev`) | **26.0s / 41.4s** | p95 ≤ 8s ❌ |
+
+Two targets are missed and both are reported as measured. The 12% false refusal is 3 vague
+patient-voice questions hitting `INSUFFICIENT_EVIDENCE` — the same retrieval weakness as the 0.032
+Recall@5, surfacing as user-visible behavior rather than a separate gate problem. Separately, the 3
+dose blocks all had `SUFFICIENT` evidence: **12% of this corpus's own clinical questions are
+unanswerable by design** under SAF-7.1, which is a scope finding worth stating rather than a bug.
+
+**115 tests passing** (6 new retry tests, including one pinning the subclass-ordering hazard).
+
 ---
 
 ## 6. Features In Progress

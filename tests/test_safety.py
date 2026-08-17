@@ -243,6 +243,24 @@ def test_symptom_questions_are_not_prescription_requests(text):
     assert not detect_prescription_request(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "How much physical activity should I be getting each week to protect my heart?",
+        "How much water should I drink daily?",
+        "How much sleep should I get?",
+    ],
+)
+def test_how_much_questions_without_a_medication_are_not_prescription_requests(text):
+    """Regression, measured on the dev split: an over-broad "how much ...
+    should I" pattern (no medication term required) falsely refused
+    "How much physical activity should I be getting each week?" — a
+    wellness question containing no medication at all. False refusal is
+    its own harm: it makes the system useless for exactly the preventive
+    questions the USPSTF documents exist to answer."""
+    assert not detect_prescription_request(text)
+
+
 # --------------------------------------------------------------------------
 # SAF-8.x — reassurance discipline
 # --------------------------------------------------------------------------

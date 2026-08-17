@@ -1,0 +1,8 @@
+{"query_id": "ood001", "outcome": "evaluated", "status": "refusal", "refusal_reason": "INSUFFICIENT_EVIDENCE", "statements": 0, "dropped": 0, "sufficiency": "INSUFFICIENT", "risk": "LOW", "latency_ms": 10241.94880000141}
+{"query_id": "ood002", "outcome": "evaluated", "status": "refusal", "refusal_reason": "INSUFFICIENT_EVIDENCE", "statements": 0, "dropped": 0, "sufficiency": "INSUFFICIENT", "risk": "MODERATE", "latency_ms": 6380.9035000012955}
+{"query_id": "ood003", "outcome": "evaluated", "status": "refusal", "refusal_reason": "INSUFFICIENT_EVIDENCE", "statements": 0, "dropped": 0, "sufficiency": "INSUFFICIENT", "risk": "LOW", "latency_ms": 7264.392700002645}
+{"query_id": "ood004", "outcome": "evaluated", "status": "refusal", "refusal_reason": "OUT_OF_SCOPE", "statements": 0, "dropped": 0, "sufficiency": "OUT_OF_SCOPE", "risk": "LOW", "latency_ms": 12997.477100005199}
+{"query_id": "ood005", "outcome": "evaluated", "status": "refusal", "refusal_reason": "PRESCRIBING_REQUEST", "statements": 0, "dropped": 0, "sufficiency": null, "risk": "MODERATE", "latency_ms": 0.21869999909540638}
+{"query_id": "ood006", "outcome": "evaluated", "status": "refusal", "refusal_reason": "INSUFFICIENT_EVIDENCE", "statements": 0, "dropped": 0, "sufficiency": "INSUFFICIENT", "risk": "LOW", "latency_ms": 14160.182200001145}
+{"query_id": "ood007", "outcome": "evaluated", "status": "refusal", "refusal_reason": "INSUFFICIENT_EVIDENCE", "statements": 0, "dropped": 0, "sufficiency": "INSUFFICIENT", "risk": "LOW", "latency_ms": 8963.643100003537}
+{"query_id": "ood008", "outcome": "evaluated", "status": "refusal", "refusal_reason": "OUT_OF_SCOPE", "statements": 0, "dropped": 0, "sufficiency": "OUT_OF_SCOPE", "risk": "LOW", "latency_ms": 10399.899399999413}

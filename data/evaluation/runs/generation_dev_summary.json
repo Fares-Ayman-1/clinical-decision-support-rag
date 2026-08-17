@@ -1,0 +1,28 @@
+{
+  "split": "dev",
+  "n_total": 25,
+  "n_evaluated": 25,
+  "n_failed": 0,
+  "completion_rate": 1.0,
+  "run_invalid": false,
+  "failures_by_type": {},
+  "answered": 18,
+  "false_refusals": 3,
+  "safety_refusals": 1,
+  "dose_block_refusals": 3,
+  "citation_valid": 87,
+  "citation_checks": 87,
+  "excerpt_verbatim": 71,
+  "excerpt_checks": 71,
+  "statements_kept": 60,
+  "statements_dropped": 14,
+  "dropped_by_reason": {
+    "quote is not a verbatim substring of the cited evidence": 14
+  },
+  "faithful": 0,
+  "judged": 0,
+  "latency_median_ms": 25978.490400004375,
+  "latency_p95_ms": 41359.873999994306,
+  "reranker": "CrossEncoderReranker",
+  "delay_seconds": 3.0
+}

@@ -95,8 +95,19 @@ _PRESCRIPTION_REQUEST_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(?:prescribe|prescription)\b",
         re.IGNORECASE,
     ),
+    # "how much ... should I take" — but ONLY when a medication-ish term is
+    # present. An earlier version omitted that requirement and matched any
+    # "how much X should I" phrasing, which falsely refused
+    # "How much physical activity should I be getting each week?" — a
+    # wellness question with no medication in it at all. Measured on the
+    # dev split: that single over-broad pattern was a real false-refusal
+    # source, so the medication term is now required rather than assumed.
     re.compile(
-        r"\bhow (?:much|many)\b[^.?!]{0,40}\b(?:should|do|can)\b[^.?!]{0,30}\b(?:i|my)\b",
+        r"\bhow (?:much|many)\b[^.?!]{0,40}\b"
+        r"(?:medication|medicine|drug|antibiotic|painkiller|tablet|pill|dose|dosage|"
+        r"paracetamol|ibuprofen|aspirin|insulin|\w+(?:cillin|mycin|cycline|azole|statin))\b"
+        r"|\bhow (?:much|many)\b[^.?!]{0,25}\b(?:should|do|can)\s+(?:i|my|we)\b[^.?!]{0,30}\b"
+        r"(?:take|give|swallow|inject|administer)\b",
         re.IGNORECASE,
     ),
 )

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 
 from qdrant_client import QdrantClient
 
-from app.llm.provider import LLMProvider, SchemaViolationError
+from app.llm.provider import LLMProvider, SchemaViolationError, TransientProviderError
 from app.prompts.domain_classifier import classify_domains
 from app.prompts.grounded_generator import generate_grounded_answer
 from app.prompts.query_rewriter import rewrite_query
@@ -226,6 +226,12 @@ def run_query(
             rewrite_result, rewrite_ms = rewrite_future.result()
             queries = [patient_message] + rewrite_result.variants
             trace.record("query_rewrite", {"variants": rewrite_result.variants}, latency_ms=rewrite_ms)
+        except TransientProviderError:
+            # A transport failure is not a rewrite problem. Degrading here
+            # would let an outage masquerade as a successful-but-narrower
+            # query — precisely the corruption an evaluation harness must
+            # be able to see. Re-raise so the caller records a failure.
+            raise
         except SchemaViolationError as e:
             # A rewrite failure must not abort the whole query — fall back
             # to the original message alone rather than propagate.
