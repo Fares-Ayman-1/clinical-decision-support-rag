@@ -932,6 +932,38 @@ rules were derived from real corpus content by an AI assistant and **have not be
 clinician**. SAF-2.4 requires a named reviewer, so this file is demonstrator-grade until a
 qualified human signs off — stated in the file itself rather than left implicit.
 
+**Latency work — measured, not assumed (this session):**
+
+Profiled the real per-stage trace before changing anything, which redirected the plan. The
+assumption going in was that parallelizing independent LLM calls was the main win; the profile
+showed generation alone was 44% of a 30.1s query, and that the extraction → domain-classification
+chain is a genuine dependency (classification consumes the extracted state). Only `query_rewrite`
+(5.5s, takes just the raw message) was actually independent.
+
+- **Parallelized `query_rewrite`** against the extract→classify chain via a `ThreadPoolExecutor`.
+  Structurally correct and confirmed working — stages sum to 36.1s against a 28.4s wall clock, so
+  7.6s genuinely overlapped. But wall-clock gain was only ~1.7s, because both concurrent calls hit
+  the same upstream and slowed each other (extraction 6.6s → 7.5s, domain_predict 2.7s → 5.8s).
+  Kept: the overlap is real and costs nothing, and it will matter more on a provider that doesn't
+  contend. Recorded honestly rather than claimed as the fix.
+- **`TraceRecorder.record()` gained an explicit `latency_ms` parameter.** Its elapsed-since-last-call
+  default is correct for sequential stages but wrong for concurrent ones — it would attribute the
+  whole overlapping window to whichever stage recorded last, making a parallelized pipeline look
+  *slower* per-stage than it is. The rewrite branch now times itself.
+- **The real win was the model.** Benchmarked `gpt-oss:20b` against `gpt-oss:120b` on the three
+  schema-validated prompts rather than assuming the larger model was needed: **8.2s vs 25.6s
+  (3.1×) with identical schema compliance and equivalent extraction quality** (same symptoms, same
+  domains). Switched to `gpt-oss:20b`.
+
+**Measured end-to-end** (5 runs, same query, real HTTP): **median 16.8s, best 10.3s**, down from
+~30s. Answer quality holds — real cited statements, `CRITICAL` risk correctly preserved through the
+safety layer.
+
+**Still over the §13 ≤8s budget, and the remaining gap is not code.** Variance across identical
+runs is large (extraction alone ranged 2.8s–11.3s for the same input), and it is upstream cloud
+inference latency, not pipeline overhead — every non-LLM stage totals under 2s. Getting inside 8s
+needs a faster provider or a local model, not further pipeline restructuring.
+
 ---
 
 ## 6. Features In Progress

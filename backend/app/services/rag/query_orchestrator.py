@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from qdrant_client import QdrantClient
@@ -101,9 +102,19 @@ class TraceRecorder:
     def start(self) -> None:
         self._stage_start = time.perf_counter()
 
-    def record(self, name: str, output: dict) -> None:
+    def record(self, name: str, output: dict, latency_ms: float | None = None) -> None:
+        """Records a stage. Latency defaults to elapsed-since-last-record,
+        which is correct for sequential stages.
+
+        Pass `latency_ms` explicitly for a stage that ran CONCURRENTLY with
+        others: the elapsed-time default would otherwise attribute the
+        whole overlapping window to whichever stage recorded last, making
+        a parallelized pipeline look slower per-stage than it is and the
+        stage times sum to more than the total.
+        """
         assert self._stage_start is not None, "start() must be called before record()"
-        latency_ms = (time.perf_counter() - self._stage_start) * 1000
+        if latency_ms is None:
+            latency_ms = (time.perf_counter() - self._stage_start) * 1000
         self.stages.append(TraceStage(name=name, latency_ms=latency_ms, output=output))
         self._stage_start = time.perf_counter()
 
@@ -184,22 +195,55 @@ def run_query(
             red_flags=red_flags, risk=risk, decision=decision,
         )
 
-    patient_state = extract_patient_state(llm, patient_message)
-    trace.record("extraction", {"symptoms": patient_state.symptoms, "missing_information": patient_state.missing_information})
+    # query_rewrite takes only the raw patient message, so it has no
+    # dependency on extraction or domain classification and can run
+    # concurrently with that chain. Measured: extraction 6.6s ->
+    # domain_predict 2.7s is a real dependency chain (classification
+    # consumes the extracted state), while rewrite is 5.5s of independent
+    # work — overlapping it removes ~5.5s of the ~30s total. The two
+    # branches issue separate HTTP calls to the LLM provider, which is
+    # thread-safe (the OpenAI SDK client is), so a thread pool is
+    # sufficient and avoids making this whole function async.
+    def _timed_rewrite():
+        """Times itself, since a concurrent stage's duration cannot be
+        derived from the recorder's sequential elapsed-time default."""
+        started = time.perf_counter()
+        result = rewrite_query(llm, patient_message)
+        return result, (time.perf_counter() - started) * 1000
 
-    domain_classification = classify_domains(llm, patient_state)
-    predicted_domains = domain_classification.domains
-    trace.record("domain_predict", {"domains": predicted_domains, "reasoning": domain_classification.reasoning})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rewrite_future = pool.submit(_timed_rewrite)
+        rewrite_started = time.perf_counter()
 
-    try:
-        rewrite_result = rewrite_query(llm, patient_message)
-        queries = [patient_message] + rewrite_result.variants
-        trace.record("query_rewrite", {"variants": rewrite_result.variants})
-    except SchemaViolationError as e:
-        # A rewrite failure must not abort the whole query — fall back to
-        # the original message alone rather than propagate.
-        queries = [patient_message]
-        trace.record("query_rewrite", {"variants": [], "fallback_reason": str(e)})
+        patient_state = extract_patient_state(llm, patient_message)
+        trace.record("extraction", {"symptoms": patient_state.symptoms, "missing_information": patient_state.missing_information})
+
+        domain_classification = classify_domains(llm, patient_state)
+        predicted_domains = domain_classification.domains
+        trace.record("domain_predict", {"domains": predicted_domains, "reasoning": domain_classification.reasoning})
+
+        try:
+            rewrite_result, rewrite_ms = rewrite_future.result()
+            queries = [patient_message] + rewrite_result.variants
+            trace.record("query_rewrite", {"variants": rewrite_result.variants}, latency_ms=rewrite_ms)
+        except SchemaViolationError as e:
+            # A rewrite failure must not abort the whole query — fall back
+            # to the original message alone rather than propagate.
+            queries = [patient_message]
+            trace.record(
+                "query_rewrite", {"variants": [], "fallback_reason": str(e)},
+                latency_ms=(time.perf_counter() - rewrite_started) * 1000,
+            )
+        except Exception as e:  # noqa: BLE001 — same degradation, wider net.
+            # Running in a worker thread means any provider-level error
+            # (timeout, connection reset) surfaces here rather than at the
+            # call site. Retrieval works fine on the original query alone,
+            # so degrading beats failing the whole request.
+            queries = [patient_message]
+            trace.record(
+                "query_rewrite", {"variants": [], "fallback_reason": f"{type(e).__name__}: {e}"},
+                latency_ms=(time.perf_counter() - rewrite_started) * 1000,
+            )
 
     retrieval = hybrid_search_multi_query(
         client, config_id, embedding_provider, bm25, queries, request_id,
