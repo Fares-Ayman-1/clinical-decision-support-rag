@@ -62,12 +62,19 @@ correctly, rate limiting cut over to 429 after exactly 20 requests with
    | Variable | Value |
    |---|---|
    | `QDRANT__SERVICE__API_KEY` | your generated key |
-   | `QDRANT__SERVICE__HOST` | `::` |
 
-   `QDRANT__SERVICE__HOST=::` is **required, not optional**. Railway's private network
-   is IPv6-only; Qdrant's default IPv4 bind is simply unreachable over
-   `qdrant.railway.internal`, and the API would fail every retrieval with no obvious
-   cause.
+   Qdrant ships with no authentication, so on a service that anything can route to,
+   the API key is the only thing standing between the internet and the evidence
+   corpus behind every citation this system produces.
+
+   An earlier revision of this guide also told you to set
+   `QDRANT__SERVICE__HOST=::` for Railway's IPv6-only private network. **That is not
+   needed** - a deployment was verified working without it. The symptom it was
+   supposed to fix (`qdrant: ok=false` on `/api/health`) actually meant the
+   collection did not exist yet, because the health check counts points and the call
+   fails when there is nothing to count. Seeding (Step 6) resolves it. If you already
+   added the variable it is harmless, but do not add it expecting it to fix
+   `ok=false`.
 
 5. **Attach a volume** at mount path `/qdrant/storage`.
 
@@ -191,11 +198,34 @@ correctly, rate limiting cut over to 429 after exactly 20 requests with
 `api` needs the web URL for CORS; `web` needs the api URL to call it. Both domains
 exist now, so:
 
-1. Go back to **`api` -> Variables** and set `FRONTEND_ORIGIN` to the `web` URL.
-2. Redeploy `api`.
+1. On **`web` -> Variables**, set `VITE_API_BASE_URL` to the `api` URL. **Redeploy
+   `web`** — a restart is not enough, Vite inlines this into the JS bundle at build
+   time.
+2. On **`api` -> Variables**, set `FRONTEND_ORIGIN` to the `web` URL. Redeploy `api`.
 
-Use the exact origin - scheme and host, no trailing slash:
-`https://web-production-xxxx.up.railway.app`
+Exact origins - scheme and host, no trailing slash, no path.
+
+**Both are required and they fail differently**, which makes them easy to confuse:
+
+| Missing | Symptom |
+|---|---|
+| `VITE_API_BASE_URL` | The bundle keeps its `localhost:8000` default. Requests never leave the visitor's machine, fall back to same-origin, and the static host answers **`405 Not Allowed`** (an nginx HTML page). Looks like a frontend bug; is not one. |
+| `FRONTEND_ORIGIN` | The CORS preflight is refused with **`400 Disallowed CORS origin`** and no `access-control-allow-origin` header. The browser blocks the request before it is sent, so the API logs show nothing at all. |
+
+Verify both from a terminal before opening the app:
+
+```bash
+# 1. Is the right API URL baked into the deployed bundle?
+#    Expect your api URL. If it prints localhost:8000, redeploy web.
+curl -s https://<web>/ | grep -oE '/assets/[^"]+\.js' | head -1   # get the bundle path
+curl -s https://<web>/assets/<bundle>.js | grep -oE '"https?://[^"]{5,60}"' | sort -u
+
+# 2. Does the API accept the web origin?
+#    Expect an access-control-allow-origin header in the response.
+curl -s -o /dev/null -D - -X OPTIONS https://<api>/api/query \
+  -H "Origin: https://<web>" \
+  -H "Access-Control-Request-Method: POST" | grep -i access-control-allow-origin
+```
 
 ---
 
@@ -293,16 +323,26 @@ Directory is `backend` rather than `/`. See Step 2 — a correct context is ~30-
 **Health check fails, logs show no error.** Almost always `$PORT`. Confirm you are on
 commit `29178e8`+ and that you have not set a `PORT` variable yourself.
 
-**`/api/health` says `degraded`, qdrant not ok.** Either Step 6 has not run, or
-`QDRANT__SERVICE__HOST=::` is missing so `qdrant.railway.internal` resolves to nothing
-reachable. Check that first - it is the most common silent failure.
+**`/api/health` says `degraded`, `qdrant: ok=false, points=0`.** Step 6 has not run.
+`ok=false` reads like a connection failure but usually is not: the check counts points
+in the `medical_chunks` collection, and that call fails outright when the collection
+does not exist. Seed it and both fields correct together. Verified on a real
+deployment - it went straight from `ok=false` to `ok=true, points=7381` with no
+network change at all.
 
 **401/403 from Qdrant.** `QDRANT_API_KEY` on `api` does not match
 `QDRANT__SERVICE__API_KEY` on `qdrant`.
 
-**Frontend loads but every request fails.** If the browser console shows CORS, fix
-`FRONTEND_ORIGIN`. If requests go to `localhost:8000`, `VITE_API_BASE_URL` was not set
-at build time - set it and **redeploy** `web`.
+**Frontend loads but every request fails.** Three distinct causes, told apart by the
+response body rather than the on-screen message:
+
+- **`405 Not Allowed` from nginx** - `VITE_API_BASE_URL` was not set when `web` was
+  built, so the bundle still carries `localhost:8000` and posts to the static host.
+  Set it and **redeploy** (not restart) `web`. Confirm with the bundle grep in Step 4.
+- **`400 Disallowed CORS origin`** - `FRONTEND_ORIGIN` on `api` does not match the web
+  origin exactly. Confirm with the OPTIONS check in Step 4.
+- **A JSON body with an `error.code`** - a genuine API error; the code and `reason`
+  name the fault.
 
 **Deploy killed / OOM.** You are on the trial tier. The API needs ~2 GB.
 
