@@ -25,9 +25,19 @@ export interface ApiTransportConfig {
   timeoutMs?: number | Partial<Record<EndpointName, number>>;
 }
 
+// query is 180s, not a round 30s, because the pipeline is genuinely that slow
+// on CPU: a measured live request took 124.7s, of which the cross-encoder
+// reranker alone was 96.4s. At 30s the client aborted every real query and
+// reported REQUEST_TIMEOUT — the service was working, just slower than the
+// client was willing to wait.
+//
+// This is a stopgap sized to observed latency, NOT a target. NFR-2.1 asks for
+// p95 <= 8s, and TODO-PRODUCTION.md tracks the reranker cost as P0. When that
+// is fixed this should come back down; leaving it at 180s permanently would
+// hide the regression it is currently papering over.
 const DEFAULT_TIMEOUTS: Readonly<Record<EndpointName, number>> = {
   health: 5_000,
-  query: 30_000,
+  query: 180_000,
   evidence: 10_000,
 };
 
