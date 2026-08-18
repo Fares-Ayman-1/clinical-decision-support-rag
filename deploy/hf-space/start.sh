@@ -65,17 +65,23 @@ log "existing index points: ${POINTS}"
 if [ "${POINTS}" -gt 0 ]; then
   log "index already present - skipping rebuild"
 else
-  log "no index found; building now (one-time, several minutes on 2 vCPU)"
-  cd /app
-  if python /app/scripts/build_mvp_index.py --source-config S1 --recreate; then
-    log "index built: $(count_points | tail -1) points"
-  else
-    # Deliberately NOT fatal. An app that serves /api/health honestly with an
-    # empty index is far easier to diagnose than a container that restart-loops
-    # with no reachable endpoint at all.
-    log "WARNING: index build FAILED - starting with an EMPTY index"
-    log "         /api/health will report qdrant points: 0"
-  fi
+  # BACKGROUNDED, deliberately. Embedding 7,381 chunks with a 0.6B model on
+  # 2 vCPU takes far longer than the ~30 minutes Hugging Face allows a Space
+  # to bind its port -- a foreground build here left the Space stuck in
+  # APP_STARTING until the platform killed it. Backgrounding lets nginx bind
+  # :7860 within minutes; until the build lands, /api/health honestly reports
+  # the current point count and queries answer from whatever is indexed so
+  # far (typically a refusal). Progress: /tmp/index-build.log.
+  log "no index found; building in the BACKGROUND (watch /tmp/index-build.log)"
+  (
+    cd /app
+    if python /app/scripts/build_mvp_index.py --source-config S1 --recreate         >/tmp/index-build.log 2>&1; then
+      echo "[index-build] done: $(count_points | tail -1) points" >&2
+    else
+      echo "[index-build] FAILED - /api/health will keep reporting 0 points;" >&2
+      echo "[index-build] see /tmp/index-build.log" >&2
+    fi
+  ) &
 fi
 
 # --- 3. Backend -----------------------------------------------------------

@@ -5,6 +5,9 @@ colorFrom: blue
 colorTo: indigo
 sdk: docker
 app_port: 7860
+# First cold boot loads the embedding model before uvicorn answers; give the
+# port check headroom beyond the 30m default while the background index builds.
+startup_duration_timeout: 1h
 pinned: false
 short_description: Evidence-grounded clinical decision support (RAG)
 ---
