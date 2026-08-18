@@ -71,6 +71,43 @@ describe("createApiTransport", () => {
     });
   });
 
+  it("unwraps FastAPI's `detail` envelope around a structured error", async () => {
+    // Verbatim body from the deployed API when Qdrant was unreachable.
+    // FastAPI wraps HTTPException(detail={"error": {...}}) in `detail`, so
+    // this arrives nested one level deeper than the schema expects. Before
+    // the unwrap in normalizeHttpError, the parse failed and the UI showed
+    // a generic INVALID_RESPONSE / "unexpected response" instead of the
+    // precise reason the API had actually reported.
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
+        {
+          detail: {
+            error: {
+              code: "RETRIEVAL_UNAVAILABLE",
+              message:
+                "The evidence index is currently unavailable. No answer can be generated without it.",
+              request_id: "bfd6e89a-9115-4398-a5bd-49290929874e",
+              reason: "VECTOR_STORE_UNREACHABLE",
+              stage: "retrieval",
+            },
+          },
+        },
+        503,
+      ),
+    );
+    const transport = createApiTransport("http://localhost:8000", { fetch: fetchMock });
+
+    await expect(transport.query({ message: "valid client-side message" })).rejects.toMatchObject({
+      code: "RETRIEVAL_UNAVAILABLE",
+      status: 503,
+      stage: "retrieval",
+      // `reason` is what separates VECTOR_STORE_UNREACHABLE from
+      // RESOURCES_NOT_LOADED — both arrive as RETRIEVAL_UNAVAILABLE.
+      reason: "VECTOR_STORE_UNREACHABLE",
+      requestId: "bfd6e89a-9115-4398-a5bd-49290929874e",
+    });
+  });
+
   it("preserves structured outage codes, stage, request ID, and evidence", async () => {
     const candidate = getDemoResult("refusal").evidence;
     const fetchMock = vi.fn<typeof fetch>(async () =>
