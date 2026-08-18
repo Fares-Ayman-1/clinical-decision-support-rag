@@ -1,0 +1,7 @@
+# torch arrives via sentence-transformers; on Spaces the default wheel is
+# CUDA-enabled, which is what ZeroGPU needs.
+sentence-transformers>=5.0
+rank_bm25==0.2.2
+httpx>=0.27
+numpy
+huggingface_hub
