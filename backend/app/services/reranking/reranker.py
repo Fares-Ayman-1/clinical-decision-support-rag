@@ -81,7 +81,15 @@ class CrossEncoderReranker:
     up the retrieval pipeline once a model is available, with zero other
     changes needed downstream."""
 
-    def __init__(self, model_name: str, timeout_seconds: float = 3.0):
+    # Env-overridable: the right budget depends on the deployed model x CPU.
+    # ms-marco-MiniLM-L6 scores 25 pairs in ~1s on 2 vCPU; the multilingual
+    # L12 sibling needs ~2-3s; bge-reranker-v2-m3 (568M) needed 105s and is
+    # unusable on cpu-basic - measured live, not estimated.
+    def __init__(self, model_name: str, timeout_seconds: float | None = None):
+        if timeout_seconds is None:
+            import os
+
+            timeout_seconds = float(os.environ.get("RERANKER_TIMEOUT_SECONDS", "3.0"))
         from sentence_transformers import CrossEncoder
 
         self._model = CrossEncoder(model_name)

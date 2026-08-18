@@ -75,7 +75,12 @@ ENV HF_HOME=/opt/hf-cache
 # lineage as bge-m3), needs no remote code, and loads through the same
 # CrossEncoder class. NOTE: its logit scale differs, so the gate thresholds
 # MUST be recalibrated (SUFFICIENCY_TAU_{LOW,HIGH}_RERANK env vars).
-ARG RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+# bge-reranker-v2-m3 (568M) was the first multilingual pick and it LOADED
+# fine but needed 105s per query on 2 free vCPUs - the 3s rerank budget
+# discarded every result. The mMARCO multilingual MiniLM is the same family
+# as the original English reranker at ~2-3x its cost: multilingual (incl.
+# Arabic) and it fits the budget on cpu-basic.
+ARG RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 ENV RERANKER_MODEL=${RERANKER_MODEL}
 
 # The embedding model name comes from config/embedding.yaml, NOT from an
