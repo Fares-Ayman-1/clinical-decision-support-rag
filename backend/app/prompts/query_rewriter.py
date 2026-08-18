@@ -27,7 +27,10 @@ Rules:
 - If the original question is already clinically phrased, still provide at least 1 variant — a \
 close paraphrase is acceptable.
 - Variants must stay faithful to what was actually asked. Do not narrow, broaden, or redirect \
-the question's scope."""
+the question's scope.
+- ALL variants MUST be in English, regardless of the question's language. The knowledge base is \
+English-language clinical guidelines, so a non-English question must be translated faithfully \
+into English clinical phrasing — translation here is rewriting, not answering."""
 
 
 def rewrite_query(provider: LLMProvider, patient_query: str) -> QueryVariants:

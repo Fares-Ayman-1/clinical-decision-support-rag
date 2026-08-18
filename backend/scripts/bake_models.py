@@ -35,9 +35,20 @@ import os
 import ssl
 import sys
 
-EMBEDDING_MODEL = os.environ.get(
-    "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-)
+# The embedding model name comes from config/embedding.yaml and NOWHERE else.
+# There is no EMBEDDING_MODEL environment variable in the code path: every
+# caller resolves the model through load_embedding_config(), and that file says
+# so at the top.
+#
+# Baking from a separate env var let the image and the app disagree silently,
+# and the failure mode is badly misleading: embedding_provider.py sets
+# HF_HUB_OFFLINE=1 at import, so a model that was not baked is never
+# downloaded — startup dies complaining about offline mode rather than about
+# the mismatch that actually caused it. Reading the same YAML the app reads
+# makes that class of bug impossible.
+#
+# RERANKER_MODEL stays an env var deliberately: that one IS read from the
+# environment, by _load_reranker() in app/api/dependencies.py.
 RERANKER_MODEL = os.environ.get(
     "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
 )
@@ -68,11 +79,32 @@ def main() -> int:
     else:
         print("TLS: stock verification")
 
-    from sentence_transformers import CrossEncoder, SentenceTransformer
+    from sentence_transformers import CrossEncoder
 
-    print(f"Downloading embedding model: {EMBEDDING_MODEL}")
-    SentenceTransformer(EMBEDDING_MODEL)
-    print(f"Downloading reranker model:  {RERANKER_MODEL}")
+    # Reuse the app's own loader rather than re-implementing it. Beyond the
+    # model name, the YAML carries load options that change what gets cached
+    # (tokenizer padding side, torch dtype), and SentenceTransformerProvider
+    # already resolves the processor_kwargs/tokenizer_kwargs rename by
+    # signature. Duplicating that here would be a second thing to keep in sync.
+    from app.services.retrieval.embedding_provider import (
+        SentenceTransformerProvider,
+        load_embedding_config,
+    )
+
+    # SentenceTransformerProvider.__init__ does
+    # os.environ.setdefault("HF_HUB_OFFLINE", "1") — correct at runtime, where
+    # the model must already be cached, but fatal at BUILD time when the whole
+    # point is to fetch it. setdefault means an existing value wins, so setting
+    # these to "0" first keeps the download path open. Without this the bake
+    # fails with an offline error while sitting on a working network.
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    os.environ["TRANSFORMERS_OFFLINE"] = "0"
+
+    cfg = load_embedding_config()
+    print(f"baking embedding model: {cfg.name} (dim={cfg.dim})")
+    SentenceTransformerProvider(cfg)
+
+    print(f"baking reranker model:  {RERANKER_MODEL}")
     CrossEncoder(RERANKER_MODEL)
     print("Both models cached in the image.")
     return 0

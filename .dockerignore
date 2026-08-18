@@ -1,18 +1,18 @@
-# Build context is the repo root (docker-compose.yml: context: .), so
-# without this every build ships .venv, .git, and the whole data/ tree —
-# gigabytes, and slow.
-
-# SECRETS — never in a build context. .env holds a live provider API key,
-# and anything COPYed into a layer is recoverable from the image even if a
-# later layer deletes it.
-.env
-.env.*
-!.env.example
+# Shared build-context trimming. Applies to EVERY build that uses the repo root
+# as its context: backend/Dockerfile (compose's `api` and the Railway `api`
+# service) and deploy/hf-space/Dockerfile, which builds the React bundle and the
+# backend together.
+#
+# Do NOT exclude `frontend` wholesale: the Space image needs frontend/ sources
+# for its node build stage, and a directory excluded at the context level cannot
+# be recovered by a later COPY, even for a single file inside it. Only the
+# generated/vendored subtrees below are excluded.
 
 # Virtualenvs and caches
 .venv/
 venv/
 __pycache__/
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
@@ -25,30 +25,37 @@ __pycache__/
 .vscode/
 .idea/
 
-# Frontend (built by its own Dockerfile with context: ./frontend)
+# Frontend generated/vendored trees (sources themselves are kept — see above)
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 
-# Data: excluded wholesale, then two files re-included by name.
+# Secrets: compose injects .env at RUN time via `env_file`, the Space uses its
+# own secret store, and Railway injects variables. It must never land in an
+# image layer — anything COPYed in stays recoverable even if a later layer
+# removes it.
+.env
+.env.*
+!.env.example
+
+# Data: excluded wholesale, then re-included by name.
 #
-# docker-compose.yml bind-mounts data/ locally, but a PaaS has no bind
-# mounts — an image without these two files cannot serve a request, because
+# docker-compose.yml bind-mounts data/ locally, but a PaaS has no bind mounts —
+# an image without these two files cannot serve a request, because
 # app/api/dependencies.py opens both at startup (CHUNK_STORE_PATH and
-# MVP_SOURCE_CHUNKS_PATH). They are byte-identical 14 MB files, so this adds
-# ~28 MB to the image and nothing else from data/ ships.
+# MVP_SOURCE_CHUNKS_PATH). They are byte-identical 14 MB files.
 #
-# Order is load-bearing: a negation only takes effect if it FOLLOWS the
-# pattern that excluded the path. `data/**` rather than `data/` so that
-# re-including a file inside an excluded subdirectory works.
+# Order is load-bearing: a negation only takes effect if it FOLLOWS the pattern
+# that excluded the path, and `data/**` (not `data/`) is required for a negation
+# to reach a file inside an excluded subdirectory.
+#
+# data/raw is the copyrighted source PDFs and data/traces.db is local dev state;
+# neither is re-included, so both stay out of every image.
 data/**
 !data/chunk_store/medical_chunks.jsonl
 !data/chunks/benchmark/1.0_S1.jsonl
 
-# Source PDFs — copyrighted WHO/USPSTF documents, deliberately never
-# committed and never shipped in an image.
-*.pdf
-WHO-ICRC*/
-
-# Docs and local scratch
-*.md
-!README.md
+# Logs
+*.log

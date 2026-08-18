@@ -1,45 +1,88 @@
 # Embedding configuration — ARCHITECTURE.md §7.
 #
-# ARCHITECTURE.md §7.3 calls for benchmarking two candidates (E5/BGE/GTE
-# family) and deciding by Day 2 midday. Only one is actually usable in this
-# sandbox: sentence-transformers/all-MiniLM-L6-v2 is the only model already
-# cached locally: any other candidate requires a fresh download from the
-# HF Hub, which fails here with an SSL cert error consistent with a blocked
-# proxy (confirmed by a direct download attempt against BAAI/bge-small-en-v1.5).
-# The two-candidate benchmark is deferred to TODO-PRODUCTION.md and
-# re-attempted once network access is available — this file's schema
-# already supports multiple entries so a second candidate slots in with no
-# code change, just a new block below plus a re-run of
-# scripts/build_index.py.
+# The model is selected HERE and nowhere else. There is no EMBEDDING_MODEL
+# environment variable in the code path: every caller resolves the model
+# through load_embedding_config(), which reads the `primary` block below.
+# (deploy/hf-space/Dockerfile reads this same file to decide which weights to
+# bake, so the image and the app cannot disagree.)
 #
-# max_seq_length is load-bearing, not decorative: it is genuinely 256 for
-# this model (confirmed via the loaded tokenizer's model_max_length), not
-# the 512 a generic BERT-family assumption would suggest. Both existing
-# chunk configs (A: 400-600 "tokens", B: 250-350 "tokens" — measured in the
-# OLD provisional word-count approximation) would be 70.2% / 65.2%
-# truncated against this real ceiling. This is why the chunking benchmark's
-# screening sizes (config/chunking.yaml benchmark_configs) are redesigned
-# around 256, not the originally planned 250-1000 range.
+# ARCHITECTURE.md §7.3 asked for a two-candidate benchmark by Day 2. That was
+# blocked all session by R12 — no network route to the HF Hub — which left
+# all-MiniLM-L6-v2 as the only reachable model. R12 is resolved: the Hub is
+# reachable again, so a real second candidate is now pinned below.
 
+# --- Active model ---------------------------------------------------------
+# Qwen3-Embedding-0.6B. Chosen over the originally-planned BGE/E5 candidates
+# because its context window removes the constraint that has shaped every
+# retrieval decision in this project so far.
+#
+# The 256-token ceiling was never a chunking preference — it was MiniLM's real
+# max_seq_length, and config/chunking.yaml's entire benchmark grid (S1..S7,
+# 90–420 tokens) was redesigned around it. At 256, the original config A was
+# 70.2% truncated and config B 65.2%. This model's ceiling is 32,768, so that
+# constraint is simply gone, and EVALUATION.md §4's dominant failure mode
+# (fragmentation — 25/25 dev queries failed to retrieve a multi-chunk section
+# together) becomes addressable by re-chunking rather than worked around.
+#
+# Deliberately NOT the 8B sibling: 15.1 GB of bf16 weights does not fit the
+# 16 GB of a free HF Space, let alone an 8 GB dev machine. 0.6B is 1.2 GB.
 primary:
+  name: "Qwen/Qwen3-Embedding-0.6B"
+  dim: 1024                # verified against the checkpoint's hidden_size
+  # The checkpoint's REAL ceiling, so this project no longer carries an
+  # artificial one. Two numbers are advertised and only one binds:
+  # tokenizer_config.json says model_max_length=131072, but config.json says
+  # max_position_embeddings=32768 -- beyond that there are no position
+  # embeddings, so 32768 is the true limit and 131072 is a trap.
+  #
+  # Measured against the current S1 corpus (7,381 chunks, 835,893 tokens):
+  #   cap   256 (MiniLM) -> 33,223 tokens truncated away, 120 chunks affected
+  #   cap   512           -> 13,434 tokens truncated away,  52 chunks affected
+  #   cap 32768           ->      0 tokens truncated
+  # Worst single case is a 4,708-token chunk: chunking.yaml rule 4 never
+  # splits a table, so MiniLM embedded roughly 5% of it. That is now whole.
+  #
+  # Safe at this size only because embedding_provider._encode() batches by
+  # TOKEN budget rather than a fixed count -- attention is O(n^2) and
+  # sentence-transformers length-sorts, so a fixed batch of 32 would group
+  # the longest chunks together and spike memory.
+  max_seq_length: 32768
+  # Qwen3-Embedding is ASYMMETRIC and instruction-tuned: queries take an
+  # "Instruct: <task>\nQuery: " wrapper, documents take none. The model card
+  # reports ~1-5% MTEB degradation when the instruction is omitted. Centralized
+  # here so no call site can forget it (ARCHITECTURE.md §7.2).
+  # Format taken from the checkpoint's own config_sentence_transformers.json,
+  # which ends with \nQuery: and NO trailing space (the model
+  # card's get_detailed_instruct() concatenates the query directly). The
+  # task description itself is domain-specific, so that part is ours.
+  # get_detailed_instruct() concatenates the query directly). The task
+  # description itself is domain-specific, so that part is ours.
+  query_prefix: "Instruct: Given a clinical question, retrieve relevant passages from clinical practice guidelines\nQuery:"
+  passage_prefix: ""
+  normalize: true
+  distance: cosine
+  # REQUIRED, not cosmetic. This family pools the LAST token, so right-padding
+  # pools a pad token and produces quietly wrong vectors — no exception, just
+  # degraded retrieval. Enforced in embedding_provider.py.
+  tokenizer_padding_side: left
+  # Explicit float32 for CPU inference: the checkpoint is bf16, and CPU bf16
+  # without AMX is markedly slower, while CPU float16 is slower still.
+  torch_dtype: float32
+
+# --- Previous model, kept switchable -------------------------------------
+# Move this block to `primary` (and restore embedding_version below) to revert.
+# Reverting requires a re-index: dim differs (384 vs 1024), so the Qdrant
+# collection is not compatible in either direction.
+alt_minilm:
   name: "sentence-transformers/all-MiniLM-L6-v2"
   dim: 384
-  max_seq_length: 256
-  query_prefix: ""     # MiniLM is a symmetric model — no query:/passage: prefix required
+  max_seq_length: 256     # genuinely 256, confirmed via the loaded tokenizer
+  query_prefix: ""        # symmetric model — no prefix
   passage_prefix: ""
   normalize: true
   distance: cosine
 
-# Deferred — not usable in this sandbox (see note above). Kept as a
-# documented placeholder so the intended two-candidate design is visible
-# and the second slot is easy to fill in once network access allows it.
-# alt:
-#   name: "BAAI/bge-small-en-v1.5"
-#   dim: 384
-#   max_seq_length: 512
-#   query_prefix: "Represent this sentence for searching relevant passages: "
-#   passage_prefix: ""
-#   normalize: true
-#   distance: cosine
-
-embedding_version: "minilm-l6-v2-1"
+# Bumping this forces a rebuild rather than silently mixing vector spaces:
+# qdrant_index.build_index() refuses an existing collection whose stored
+# embedding_version differs unless recreate=True.
+embedding_version: "qwen3-embed-0.6b-1"

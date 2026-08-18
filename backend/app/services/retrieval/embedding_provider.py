@@ -40,6 +40,17 @@ class EmbeddingModelConfig:
     passage_prefix: str
     normalize: bool
     embedding_version: str
+    # Both default to None, which reproduces the previous load exactly, so
+    # adding them cannot change MiniLM's behavior.
+    #
+    # padding_side is load-bearing for last-token-pooling models (the Qwen3
+    # embedding family): they pool the FINAL token, so right-padding pools a
+    # pad token instead of real content and yields quietly wrong vectors with
+    # no error raised. Mean-pooling models (MiniLM/BGE) are unaffected.
+    tokenizer_padding_side: str | None = None
+    # e.g. "float32" — CPU inference on a bf16-native checkpoint is much
+    # slower without an explicit cast, and float16 on CPU is worse still.
+    torch_dtype: str | None = None
 
 
 def load_embedding_config(
@@ -55,6 +66,8 @@ def load_embedding_config(
         passage_prefix=model.get("passage_prefix", ""),
         normalize=model.get("normalize", True),
         embedding_version=raw["embedding_version"],
+        tokenizer_padding_side=model.get("tokenizer_padding_side"),
+        torch_dtype=model.get("torch_dtype"),
     )
 
 
@@ -76,8 +89,36 @@ class SentenceTransformerProvider:
         from sentence_transformers import SentenceTransformer
 
         self.config = config
-        self._model = SentenceTransformer(config.name)
+        load_kwargs: dict = {}
+        if config.tokenizer_padding_side:
+            # sentence-transformers renamed tokenizer_kwargs -> processor_kwargs
+            # and warns on the old name. Picking by signature keeps this working
+            # across both versions instead of pinning one and emitting a
+            # DeprecationWarning on every single model load.
+            import inspect
+
+            params = inspect.signature(SentenceTransformer.__init__).parameters
+            key = "processor_kwargs" if "processor_kwargs" in params else "tokenizer_kwargs"
+            load_kwargs[key] = {"padding_side": config.tokenizer_padding_side}
+        if config.torch_dtype:
+            load_kwargs["model_kwargs"] = {"torch_dtype": config.torch_dtype}
+        self._model = SentenceTransformer(config.name, **load_kwargs)
         self._model.max_seq_length = config.max_seq_length
+
+        # Fail loudly on a config/checkpoint mismatch. Qdrant would otherwise
+        # accept the collection at the configured dim and every later upsert
+        # would raise a shape error far from the actual cause.
+        # get_sentence_embedding_dimension() is deprecated in favour of
+        # get_embedding_dimension(); prefer the new name when present.
+        _dim_of = getattr(
+            self._model, "get_embedding_dimension", None
+        ) or self._model.get_sentence_embedding_dimension
+        actual_dim = _dim_of()
+        if actual_dim != config.dim:
+            raise ValueError(
+                f"config/embedding.yaml declares dim={config.dim} for {config.name!r} "
+                f"but the loaded model reports {actual_dim}. Fix the config before indexing."
+            )
 
         if register_tokenizer:
             tokenizer = self._model.tokenizer
@@ -87,33 +128,77 @@ class SentenceTransformerProvider:
 
             set_tokenizer(_count)
 
+    # Padded tokens per batch. Ordinary ~140-token chunks still pack ~58 to a
+    # batch, while the corpus's 4,708-token table chunk cannot drag neighbours
+    # up to its length. Set deliberately low: a Hugging Face build container
+    # OOMKilled (exit 137) on this corpus with fixed batch_size=32, so peak
+    # activation memory is the binding constraint here, not throughput.
+    MAX_BATCH_TOKENS = 8192
+
     def _encode(self, texts: list[str]) -> np.ndarray:
-        # Chunked into outer batches of 500 rather than handing the whole
-        # list to model.encode(batch_size=32) in one call. Found necessary
-        # by direct reproduction: encoding data/chunks/benchmark's S2 set
-        # (5273 items) as one call to encode() ran far slower than
-        # encoding the same items 500 at a time back-to-back (500 items
-        # consistently took ~13-15s either way, but the single 5273-item
-        # call never finished after 500+ CPU-seconds, well past the
-        # ~150s the per-batch rate predicts). Root cause not fully
-        # isolated (plausibly encode()'s internal length-sort/bucketing
-        # degrading on a large, mixed-length list, or memory pressure from
-        # allocating output for the whole list before returning) — the
-        # outer-chunking workaround is verified to avoid it, which is what
-        # matters for the benchmark's wall-clock budget.
-        outer_batch = 500
-        all_vectors = []
-        for start in range(0, len(texts), outer_batch):
-            batch = texts[start : start + outer_batch]
+        """Encodes with TOKEN-budget batching rather than a fixed batch count.
+
+        Two problems this solves, both found by measurement:
+
+        1. Fixed batch_size wastes compute proportional to length variance.
+           sentence-transformers pads every item in a batch up to the longest
+           one, and attention is O(n^2), so one long chunk taxes the whole
+           batch. With max_seq_length now 32768 (the real Qwen3 ceiling), a
+           fixed batch of 32 around the 4,708-token table chunk is a genuine
+           memory spike, not just waste.
+
+        2. It supersedes an earlier 500-item outer-batching workaround. Handing
+           the whole list to model.encode() once was reproducibly pathological:
+           500 items took ~13-15s either way, but a single 5,273-item call never
+           finished after 500+ CPU-seconds against the ~150s the per-batch rate
+           predicted. Capping work per batch removes that cliff by construction
+           instead of by a magic chunk size.
+
+        Items are grouped longest-first so each batch's padding is bounded by a
+        similar-length neighbour, then results are scattered back into the
+        caller's original order — callers index vectors positionally against
+        their input list, so preserving order is a correctness requirement.
+        """
+        if not texts:
+            return np.zeros((0, self.config.dim), dtype=np.float32)
+
+        tokenizer = self._model.tokenizer
+        cap = self.config.max_seq_length
+        # min(..., cap) because anything past the cap is truncated before the
+        # forward pass, so it must not inflate the budget arithmetic.
+        lengths = [
+            min(len(tokenizer.encode(t, add_special_tokens=True)), cap) for t in texts
+        ]
+
+        order = sorted(range(len(texts)), key=lambda i: -lengths[i])
+        batches: list[list[int]] = []
+        current: list[int] = []
+        current_max = 0
+        for i in order:
+            candidate_max = max(current_max, lengths[i])
+            # `current and ...` so a single item larger than the whole budget
+            # still gets its own batch rather than looping forever.
+            if current and candidate_max * (len(current) + 1) > self.MAX_BATCH_TOKENS:
+                batches.append(current)
+                current, current_max = [i], lengths[i]
+            else:
+                current.append(i)
+                current_max = candidate_max
+        if current:
+            batches.append(current)
+
+        out = np.zeros((len(texts), self.config.dim), dtype=np.float32)
+        for batch in batches:
             vectors = self._model.encode(
-                batch,
-                batch_size=32,
+                [texts[i] for i in batch],
+                batch_size=len(batch),
                 show_progress_bar=False,
                 convert_to_numpy=True,
                 normalize_embeddings=self.config.normalize,
             )
-            all_vectors.append(vectors)
-        return np.concatenate(all_vectors, axis=0) if all_vectors else np.zeros((0, self.config.dim))
+            for position, index in enumerate(batch):
+                out[index] = vectors[position]
+        return out
 
     def embed_queries(self, queries: list[str]) -> np.ndarray:
         prefixed = [f"{self.config.query_prefix}{q}" for q in queries]

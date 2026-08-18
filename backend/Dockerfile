@@ -27,11 +27,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# curl for the healthcheck below. Build tools are NOT installed: every
-# pinned dependency ships a wheel for cp313, and adding gcc would roughly
-# double the image for nothing.
+# curl for the healthcheck below; libgomp1 is a RUNTIME requirement of torch
+# (OpenMP) and its absence shows up only when torch is first imported, as an
+# ImportError about libgomp.so.1 rather than anything mentioning torch.
+# Build tools are NOT installed: every pinned dependency ships a wheel for
+# cp313, and adding gcc would roughly double the image for nothing.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && apt-get install -y --no-install-recommends curl ca-certificates libgomp1 \
   && rm -rf /var/lib/apt/lists/*
 
 # Dependencies first, as their own layer: requirements.txt changes far less

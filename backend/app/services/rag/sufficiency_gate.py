@@ -62,12 +62,21 @@ from app.services.rag.evidence_pack import EvidencePack
 
 MIN_SUPPORT_FOR_SUFFICIENT = 2
 
-# Cross-encoder logit scale. Fitted by scripts/fit_thresholds.py against
-# the labeled splits — see the module docstring for provenance and for why
-# TAU_HIGH is a policy choice rather than a fitted value. Regenerate with:
+# Cross-encoder logit scale. The DEFAULTS were fitted by
+# scripts/fit_thresholds.py against the labeled splits — see the module
+# docstring for provenance and for why TAU_HIGH is a policy choice rather
+# than a fitted value. Regenerate with:
 #   python scripts/fit_thresholds.py --write
-TAU_HIGH_RERANK = 0.7285
-TAU_LOW_RERANK = -3.9325
+#
+# Env-overridable because these numbers are married to ONE reranker's logit
+# scale (the values below are cross-encoder/ms-marco-MiniLM-L-6-v2's): a
+# reranker swap invalidates them completely, and recalibrating must not
+# require an image rebuild — set SUFFICIENCY_TAU_{LOW,HIGH}_RERANK on the
+# deployment and restart.
+import os as _os
+
+TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "0.7285"))
+TAU_LOW_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_LOW_RERANK", "-3.9325"))
 
 # RRF score scale (~0.01-0.06 for top-5 on this corpus). STILL PROVISIONAL —
 # only reachable on the reranker-failure fallback path, never fitted.

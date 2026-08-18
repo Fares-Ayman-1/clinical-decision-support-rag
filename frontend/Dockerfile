@@ -51,6 +51,15 @@ RUN set -e; \
 #   docker build --build-arg BUILD_CA="$(cat corp-root.crt)" ...
 ARG BUILD_CA=""
 
+# npm's defaults give up quickly on a flaky link: a local build here died with
+# ECONNRESET after ~10 minutes mid-install while the identical install
+# succeeded on a hosted builder. Retries/timeouts are set via env so the
+# `npm ci` invocation below stays a single cacheable layer.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=180000 \
+    NPM_CONFIG_FETCH_TIMEOUT=600000
+
 COPY package.json package-lock.json ./
 RUN if [ -n "$BUILD_CA" ]; then \
       printf '%s\n' "$BUILD_CA" > /tmp/build_ca.crt \
