@@ -6,23 +6,138 @@
   "completion_rate": 1.0,
   "run_invalid": false,
   "failures_by_type": {},
-  "answered": 18,
+  "answered": 19,
   "false_refusals": 3,
   "safety_refusals": 1,
-  "dose_block_refusals": 3,
-  "citation_valid": 83,
-  "citation_checks": 83,
-  "excerpt_verbatim": 56,
-  "excerpt_checks": 56,
-  "statements_kept": 62,
-  "statements_dropped": 16,
+  "dose_block_refusals": 2,
+  "citation_valid": 79,
+  "citation_checks": 79,
+  "excerpt_verbatim": 53,
+  "excerpt_checks": 53,
+  "statements_kept": 60,
+  "statements_dropped": 13,
   "dropped_by_reason": {
-    "quote is not a verbatim substring of the cited evidence": 16
+    "quote is not a verbatim substring of the cited evidence": 13
   },
-  "faithful": 59,
-  "judged": 62,
-  "latency_median_ms": 14469.725099999778,
-  "latency_p95_ms": 26994.700199999897,
+  "faithful": 52,
+  "judged": 60,
+  "judge_errors": 0,
+  "unfaithful_examples": [
+    {
+      "query_id": "dev004",
+      "statement_index": 2,
+      "supported": false,
+      "reasoning": "The cited evidence lists fast breathing as a danger sign that requires prompt referral, but it only describes fever (\u226538.0\u202f\u00b0C) as a frequent sign and symptom, not explicitly as a danger sign. Therefore the claim that fever \u226538.0\u202f\u00b0C is a danger sign requiring prompt evaluation is not fully supported by the evidence.",
+      "statement": "Fast breathing and a fever of 38.0\u202f\u00b0C or higher are danger signs that require prompt evaluation.",
+      "cited_evidence_ids": [
+        "E3"
+      ],
+      "cited_chunk_ids": [
+        "who_aware_S1_p351_s178_c3"
+      ]
+    },
+    {
+      "query_id": "dev006",
+      "statement_index": 1,
+      "supported": false,
+      "reasoning": "The cited evidence states that oxygen administration is an essential skill and that patients in shock need oxygen. It does not assert that all patients should receive oxygen. The statement \"Give oxygen to the patient.\" is a blanket claim that is not specifically supported by the evidence provided.",
+      "statement": "Give oxygen to the patient.",
+      "cited_evidence_ids": [
+        "E1",
+        "E4"
+      ],
+      "cited_chunk_ids": [
+        "who_bec_S1_p117_s61_c1",
+        "who_bec_S1_p102_s52_c1"
+      ]
+    },
+    {
+      "query_id": "dev006",
+      "statement_index": 2,
+      "supported": false,
+      "reasoning": "The cited evidence (E1 and E4) explicitly states that in shock the primary management is administration of IV fluids appropriate for age and condition, and that IV fluid resuscitation is a critical action. However, it does not explicitly mention the step of establishing intravenous access. While establishing IV access is a logical prerequisite for administering IV fluids, the evidence does not contain that claim. Therefore the statement overstates the evidence by adding a claim that is not directly supported.",
+      "statement": "Establish intravenous access and administer appropriate IV fluids.",
+      "cited_evidence_ids": [
+        "E1",
+        "E4"
+      ],
+      "cited_chunk_ids": [
+        "who_bec_S1_p117_s61_c1",
+        "who_bec_S1_p102_s52_c1"
+      ]
+    },
+    {
+      "query_id": "dev010",
+      "statement_index": 4,
+      "supported": false,
+      "reasoning": "The cited evidence (E3 and E5) explicitly states that all patients in the waiting room should wear a mask and practice respiratory hygiene, and that patients should maintain at least 1\u202fm distance from other patients. However, the evidence does not mention healthcare workers maintaining a 1\u202fm distance from patients. Because the statement adds a claim about healthcare workers that is not supported by the evidence, the statement is not fully supported.",
+      "statement": "All patients in the waiting room should wear a mask and practice respiratory hygiene, and healthcare workers should maintain at least 1\u202fm distance from patients.",
+      "cited_evidence_ids": [
+        "E3",
+        "E5"
+      ],
+      "cited_chunk_ids": [
+        "who_sari_S1_p72_s36_c1",
+        "who_sari_S1_p71_s35_c2"
+      ]
+    },
+    {
+      "query_id": "dev011",
+      "statement_index": 1,
+      "supported": false,
+      "reasoning": "The cited evidence lists epigastric pain associated with nausea, loss of appetite, history of alcohol or NSAID use, gastroparesis, and heartburn, but it does not mention reflux. Because the statement adds reflux as an associated factor that is not supported by the evidence, the claim is not fully supported by the cited text.",
+      "statement": "Epigastric pain may be associated with nausea, loss of appetite, history of alcohol or NSAID use, gastroparesis, heartburn, or reflux.",
+      "cited_evidence_ids": [
+        "E2"
+      ],
+      "cited_chunk_ids": [
+        "who_dcm_S1_p94_s22_c4"
+      ]
+    },
+    {
+      "query_id": "dev012",
+      "statement_index": 1,
+      "supported": false,
+      "reasoning": "The cited evidence states that a severe headache or the first/worst headache is more likely to be due to a serious cause, but it does not explicitly state that the patient should see a doctor. The recommendation to seek medical care is an inference not directly supported by the evidence, so the statement overstates what the evidence explicitly claims.",
+      "statement": "If the headache is severe or the first or worst headache you have ever experienced, it is more likely to be due to a serious cause and you should see a doctor.",
+      "cited_evidence_ids": [
+        "E2"
+      ],
+      "cited_chunk_ids": [
+        "who_dcm_S1_p120_s28_c2"
+      ]
+    },
+    {
+      "query_id": "dev012",
+      "statement_index": 2,
+      "supported": false,
+      "reasoning": "The cited evidence explicitly recommends referral to a hospital only when the patient fails to respond to treatment. It does not mention referral for other concerning features. The statement adds an additional condition that is not supported by the evidence, thus it overstates the guidance.",
+      "statement": "If you fail to respond to initial treatment or have other concerning features, you should be referred to a hospital.",
+      "cited_evidence_ids": [
+        "E5"
+      ],
+      "cited_chunk_ids": [
+        "who_dcm_S1_p133_s29_c5"
+      ]
+    },
+    {
+      "query_id": "dev018",
+      "statement_index": 3,
+      "supported": false,
+      "reasoning": "The cited evidence discusses children with severe malnutrition and shock, noting the need for rehydration (oral or IV) and careful management, especially due to hypoglycaemia risk. It does not mention diarrhea at all. Therefore the claim that \"children with severe diarrhea and shock may need rehydration with oral or intravenous fluids, and careful management is required, especially in malnutrition\" is not fully supported by the evidence, because the evidence does not address diarrhea.",
+      "statement": "Children with severe diarrhea and shock may need rehydration with oral or intravenous fluids, and careful management is required, especially in malnutrition.",
+      "cited_evidence_ids": [
+        "E4"
+      ],
+      "cited_chunk_ids": [
+        "who_bec_S1_p177_s85_c7"
+      ]
+    }
+  ],
+  "latency_median_ms": 18878.734500000064,
+  "latency_p95_ms": 39591.35930000048,
   "reranker": "CrossEncoderReranker",
-  "delay_seconds": 4.0
+  "delay_seconds": 4.0,
+  "limit": null,
+  "skip_faithfulness": false
 }

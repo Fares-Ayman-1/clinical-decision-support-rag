@@ -258,10 +258,16 @@ against the Chunk Store — not by asking a model whether it cited correctly, wh
 
 | Metric | Measured | Target |
 |---|---|---|
-| Citation validity | **100%** (87/87 citations across 25 queries) | 100% |
-| Verbatim excerpt accuracy | **100%** (71/71) | 100% |
+| Citation validity | **100%** (79/79 citations across 25 queries) | 100% |
+| Verbatim excerpt accuracy | **100%** (53/53) | 100% |
 | Unsupported statements reaching the user | **0%** | 0% |
-| Statements dropped pre-display | 18.9% (14/74) | — |
+| Statements dropped pre-display | 17.8% (13/73) | — |
+
+All figures in this section and in §8 come from **one** `dev` run
+(`data/evaluation/runs/generation_dev_summary.json`, 100% completion). This matters because
+generation is non-deterministic: three `dev` runs of the unchanged system produced 87, 83, and 79
+citations and drop rates of 18.9%, 20.5%, and 17.8%. Mixing figures across runs would let the
+document quietly contradict itself, so every number here is traceable to a single artifact.
 
 **Citation validity of 100% is a structural property, not a lucky run.** The generator emits only
 opaque `E1`…`En` labels and never sees a document title, section, or page number (AC-17) — the
@@ -270,11 +276,15 @@ merely detectable.** Adversarial tests confirm the validation layer: a fabricate
 drops only that statement (AC-19), a non-verbatim quote is dropped (AC-20), and an Evidence Pack
 where every statement is dropped correctly falls back to refusal.
 
-**The 18.9% drop rate is the interesting number, and all 14 drops share one cause:** *"quote is not
+**The 17.8% drop rate is the interesting number, and all 13 drops share one cause:** *"quote is not
 a verbatim substring of the cited evidence."* The model paraphrases when asked to quote. Those
-statements never reach the user — which is the system working as designed — but a ~19% generation
+statements never reach the user — which is the system working as designed — but a ~18% generation
 waste rate is a real prompt-engineering weakness, not a solved problem. It is a strong argument for
 programmatic validation over trusting instruction-following.
+
+**What this check cannot catch is measured separately in §8.6.** A surviving statement has a
+resolvable citation and a verbatim quote; neither property says the claim built around that quote
+stays within what the source supports. Faithfulness measures that, and it does not pass.
 
 ---
 
@@ -340,25 +350,29 @@ guard refusing it is exactly correct.
 
 | Outcome | Count | Meaning |
 |---|---:|---|
-| Answered | 18/25 | — |
+| Answered | 19/25 | — |
 | **False refusal** (`INSUFFICIENT_EVIDENCE`) | **3/25 = 12.0%** | A genuine miss |
 | Safety refusal (input prescribing guard) | 1/25 | Correct by design — not a miss |
-| Dose block (output dose scan) | 3/25 | Had evidence; suppressed per SAF-7.1 |
+| Dose block (output dose scan) | 2/25 | Had evidence; suppressed per SAF-7.1 |
 
-**The 12.0% false-refusal rate misses the ≤10% target.** The three are `dev002`, `dev023`, and
+**The 12.0% false-refusal rate misses the ≤10% target.** The three are `dev005`, `dev023`, and
 `dev025` — all `INSUFFICIENT_EVIDENCE`, all vague patient-voice questions of exactly the kind §4's
 low recall predicts. This is the retrieval weakness surfacing as user-visible behavior, not a
 separate gate problem: with Recall@5 at 0.032, the gate is often correctly reporting that not enough
 evidence was retrieved.
 
-**The 3 dose blocks are the honest cost of SAF-7.1, and are reported separately rather than folded
-into either bucket.** All three (`dev009`, `dev021`, `dev024`) had `sufficiency: SUFFICIENT` — the
+**The dose blocks are the honest cost of SAF-7.1, and are reported separately rather than folded
+into either bucket.** Both (`dev009`, `dev021`) had `sufficiency: SUFFICIENT` — the
 system retrieved good evidence, generated an answer, and then suppressed it because the answer
 contained dosing patterns. Questions like *"What is the right amount of fluid to give someone in
 shock from blood loss?"* cannot be answered without dosing. Counting these as correct would hide a
 real capability limit; counting them as failures would penalize the system for a safety requirement
-it was explicitly built to enforce. **12% of this corpus's own clinical questions are unanswerable
-by design** — that is a scope finding, not a bug.
+it was explicitly built to enforce. **Roughly 8–12% of this corpus's own clinical questions are
+unanswerable by design** — that is a scope finding, not a bug. The range is given rather than a
+point estimate because it moves with generation: this run blocked 2 of 25, an earlier one blocked 3
+(adding `dev024`). Whether a given answer trips the dose scan depends on whether the model happened
+to phrase a dose, which is exactly the kind of figure that should not be quoted to three
+significant digits.
 
 ### 8.4 The `golden` split — held-out reporting run
 
@@ -374,20 +388,24 @@ python scripts/evaluate_generation.py --split golden --final --delay-seconds 4
 |---|---|---|---|
 | Completion | **100%** (10/10) | 100% (25/25) | — |
 | False refusal | **10.0%** (1/10) | 12.0% (3/25) | ≤ 10% |
-| Citation validity | **100%** (30/30) | 100% (83/83) | 100% |
-| Verbatim excerpt accuracy | **100%** (32/32) | 100% (56/56) | 100% |
-| Statements dropped pre-display | 13.8% (4/29) | 20.5% (16/78) | — |
-| **Faithfulness (LLM-judge)** | **76.0%** (19/25) | see §8.6 | ≥ 90% |
-| Latency median / p95 | 14.0 s / 16.8 s | 14.5 s / 27.0 s | p95 ≤ 8 s |
+| Citation validity | **100%** (30/30) | 100% (79/79) | 100% |
+| Verbatim excerpt accuracy | **100%** (32/32) | 100% (53/53) | 100% |
+| Statements dropped pre-display | 13.8% (4/29) | 17.8% (13/73) | — |
+| **Faithfulness (LLM-judge)** | **76.0%** (19/25) | 86.7% (52/60) | ≥ 90% |
+| Latency median / p95 | 14.0 s / 16.8 s | 18.9 s / 39.6 s | p95 ≤ 8 s |
 
 **Every deterministic metric holds on held-out data.** Citation validity and verbatim accuracy stay
 at 100% on a split that never informed a single tuning decision — consistent with §7's argument that
 these are structural properties (the generator cannot see document metadata, so it cannot fabricate
 it) rather than tuned outcomes.
 
-**The drop rate is lower on golden (13.8% vs 20.5%) and the false-refusal rate is comparable.** With
+**The drop rate is lower on golden (13.8% vs 17.8%) and the false-refusal rate is comparable.** With
 n=10 neither difference is meaningful; what matters is the absence of a cliff. A system tuned into
 `dev` would degrade visibly here, and it does not.
+
+The one metric that looks worse on golden — faithfulness, 76.0% vs 86.7% — is the noisiest figure in
+this document and the gap is within its run-to-run variance (§8.6). It is not read as a golden-
+specific weakness.
 
 ### 8.5 Run integrity
 
@@ -430,36 +448,55 @@ That judgment needs a model, so it is the one place a judge is used
 
 | Split | Faithfulness | Judged statements | Target |
 |---|---|---|---|
+| `dev` | **86.7%** | 52/60 | ≥ 90% |
 | `golden` | **76.0%** | 19/25 | ≥ 90% |
 
-**The target is missed, and the failures are not random.** All six rejected statements on `golden`
-share one shape: the clinical content is correctly grounded in the cited evidence, and then a
-**care-seeking recommendation is appended that the guideline text does not contain**.
+**Both miss the target, and the failures are not random.** All 14 rejected statements across the two
+splits share one structure: **the statement is mostly grounded, then adds one element the cited
+evidence does not contain.** Not hallucinated topics — retrieval is fine and every citation
+resolves. One extra clause.
 
-| Statement (abridged) | What the judge found |
-|---|---|
-| "A rash that appears rapidly… **should be evaluated by a doctor promptly**" | Evidence says to stop the antibiotic; it never mentions consulting a doctor |
-| "…**may not require immediate medical attention**" | Evidence describes the rash type; it says nothing about urgency |
-| "Overwhelming infections can cause rapid dehydration and shock, **making urgent medical evaluation necessary**" | Dehydration/shock supported; the evaluation recommendation is added |
-| "…increases the risk of serious **internal** injuries" | Evidence says "serious injury", not "internal" |
+| Split | Statement (abridged) | The unsupported addition |
+|---|---|---|
+| `dev` | "Epigastric pain may be associated with nausea, loss of appetite, alcohol or NSAID use, gastroparesis, heartburn, **or reflux**" | Evidence lists every item **except** reflux |
+| `dev` | "…patients should wear a mask… and **healthcare workers should maintain at least 1 m distance**" | Evidence says *patients* keep 1 m from other *patients* |
+| `dev` | "**Children with severe diarrhea** and shock may need rehydration…" | Evidence is about severe *malnutrition*; never mentions diarrhea |
+| `dev` | "If you fail to respond to initial treatment **or have other concerning features**…" | Evidence gives only the first condition |
+| `dev` | "…first or worst headache… **and you should see a doctor**" | Severity claim supported; care-seeking advice added |
+| `golden` | "A rash that appears rapidly… **should be evaluated by a doctor promptly**" | Evidence says stop the antibiotic; never mentions a doctor |
+| `golden` | "…increases the risk of serious **internal** injuries" | Evidence says "serious injury", not "internal" |
+
+Roughly a third are **care-seeking advice appended to grounded content** ("you should see a doctor",
+"requires prompt evaluation"). The rest are **scope drift**: one extra list item, one extra
+condition, a subject swapped (*patients* → *healthcare workers*), a population changed
+(*malnutrition* → *diarrhea*). That last kind is the most concerning — a statement about the wrong
+patient group still reads as authoritative and still carries a valid citation.
 
 **This is a prompt defect, not a retrieval one.** The generator's system prompt
-(`04_grounded_generator`) requires every statement to cite evidence and forbids unsupported claims —
-but it never tells the model what to do when a patient asks "should I see a doctor?" and the
-retrieved guideline, written *for clinicians*, simply does not address that. The model bridges the
-gap with clinically sensible advice that no cited source states. Verified by reading the prompt:
-there is no instruction to add care-seeking guidance, so the model is doing it unprompted.
+(`04_grounded_generator`) requires every statement to cite evidence and forbids unsupported claims,
+but nothing constrains a statement to stay *within* what its citation covers — and it never says
+what to do when a patient asks "should I see a doctor?" and the retrieved guideline, written *for
+clinicians*, does not address that. Verified by reading the prompt: there is no instruction to add
+care-seeking guidance, so the model supplies it unprompted.
 
-**Two honest caveats on this number.** It is scored by the same model family that produced the
+**Why the deterministic checks cannot see any of this.** All 14 statements passed citation validity
+and verbatim accuracy at 100%. The cited id resolves; the quoted span really is in the source. What
+fails is the claim built *around* the quote — which is exactly why this metric exists, and why §7's
+100% must not be read as "the answers are faithful".
+
+**Two honest caveats on the number itself.** It is scored by the same model family that produced the
 text — a weaker check than an independent judge — and it moves between runs of an unchanged system
-(78.9% and 76.0% on two `golden` runs). It is strong enough to identify the pattern above, and too
-noisy to quote as a precise rate. Both points are recorded as limitations 12 and 13.
+(78.9% and 76.0% on two `golden` runs, with different statement counts, since generation is
+non-deterministic). Strong enough to identify the pattern above; too noisy to quote as a precise
+rate. The gap between splits (86.7% vs 76.0%) sits within that noise at n=25 judged statements and
+is **not** evidence that golden is harder. Recorded as limitations 12 and 13.
 
-**The fix is known but deliberately not applied.** Adding a rule to route care-seeking advice
-through the Decision Engine's fixed copy (which is config-sourced and already correct per SAF-6.5)
-rather than letting the generator improvise it would address every failure above. Changing the
-generator prompt after measuring golden would invalidate this run as a held-out result, so it is
-recorded as an open defect rather than quietly fixed.
+**The fix is known but deliberately not applied.** Two changes would address most of these: a prompt
+rule that a statement must not extend beyond what its own citation states, and routing care-seeking
+advice through the Decision Engine's config-sourced copy (already correct per SAF-6.5) instead of
+letting the generator improvise it. Changing the generator prompt *after* measuring golden would
+spend the held-out property this document just used, so it is recorded as an open defect with the
+fix named rather than quietly applied.
 
 ### 8.7 HTTP-layer integration tests
 
@@ -497,8 +534,10 @@ one call site's choice of dictionary key.
 |---|---|---|
 | Retrieval (dense+BM25+RRF) | 101.5 ms | — |
 | Rerank (25 pairs, CPU) | ~0.7 s | ~2 s |
-| End-to-end median (`dev`, n=25) | **26.0 s** | — |
-| End-to-end p95 (`dev`, n=25) | **41.4 s** | ≤ 8 s |
+| End-to-end median (`dev`, n=25) | **18.9 s** | — |
+| End-to-end p95 (`dev`, n=25) | **39.6 s** | ≤ 8 s |
+| End-to-end median (`golden`, n=10) | 14.0 s | — |
+| End-to-end p95 (`golden`, n=10) | 16.8 s | ≤ 8 s |
 | End-to-end median (`out_of_domain`, n=8) | 10.2 s | — |
 | End-to-end p95 (`out_of_domain`, n=8) | 14.2 s | ≤ 8 s |
 
@@ -585,9 +624,9 @@ Stated plainly, because a technical panel will find them anyway:
 
 **Weakest results:**
 - Retrieval recall, on a chunking configuration chosen by availability rather than measurement.
-- Latency, by a wide margin (p95 41.4 s against an 8 s budget).
+- Latency, by a wide margin (p95 39.6 s against an 8 s budget).
 - False refusal at 12.0%, over target — downstream of the recall weakness.
-- An 18.9% pre-display statement drop rate from paraphrased quotes.
+- A 17.8% pre-display statement drop rate from paraphrased quotes.
 - **Faithfulness at 76.0% against a ≥90% target** (§8.6) — the generator appends care-seeking advice
   its cited sources do not state. The deterministic citation checks pass at 100% precisely because
   they cannot see this: the citation resolves and the quote is verbatim; it is the sentence built
