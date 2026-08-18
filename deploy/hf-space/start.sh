@@ -64,19 +64,26 @@ log "existing index points: ${POINTS}"
 
 if [ "${POINTS}" -gt 0 ]; then
   log "index already present - skipping rebuild"
+elif python /usr/local/bin/index_persistence.py restore; then
+  # Fast path: a snapshot for this exact embedding_version exists in the
+  # dataset repo. Download + restore is ~1 minute vs 30-90 min of re-embedding.
+  log "index restored from published snapshot"
 else
   # BACKGROUNDED, deliberately. Embedding 7,381 chunks with a 0.6B model on
   # 2 vCPU takes far longer than the ~30 minutes Hugging Face allows a Space
   # to bind its port -- a foreground build here left the Space stuck in
   # APP_STARTING until the platform killed it. Backgrounding lets nginx bind
   # :7860 within minutes; until the build lands, /api/health honestly reports
-  # the current point count and queries answer from whatever is indexed so
-  # far (typically a refusal). Progress: /tmp/index-build.log.
-  log "no index found; building in the BACKGROUND (watch /tmp/index-build.log)"
+  # the current point count and queries answer with a refusal.
+  # Progress: /tmp/index-build.log.
+  log "no snapshot; building in the BACKGROUND (watch /tmp/index-build.log)"
   (
     cd /app
     if python /app/scripts/build_mvp_index.py --source-config S1 --recreate         >/tmp/index-build.log 2>&1; then
       echo "[index-build] done: $(count_points | tail -1) points" >&2
+      # Publish so every future cold start takes the restore fast path.
+      # Needs the HF_TOKEN Space secret; logs-and-skips without it.
+      python /usr/local/bin/index_persistence.py publish >&2 || true
     else
       echo "[index-build] FAILED - /api/health will keep reporting 0 points;" >&2
       echo "[index-build] see /tmp/index-build.log" >&2

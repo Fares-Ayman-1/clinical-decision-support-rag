@@ -115,6 +115,7 @@ ENV PYTHONPATH=/app/backend
 COPY --from=frontend /fe/dist /usr/share/nginx/html
 COPY deploy/hf-space/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/hf-space/start.sh /usr/local/bin/start.sh
+COPY deploy/hf-space/index_persistence.py /usr/local/bin/index_persistence.py
 RUN chmod +x /usr/local/bin/start.sh
 
 # Defaults so the Space boots even before any Space variable is set. The
