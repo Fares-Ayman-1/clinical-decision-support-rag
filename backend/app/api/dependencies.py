@@ -51,6 +51,26 @@ def qdrant_url() -> str:
     return os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL)
 
 
+def qdrant_api_key() -> str | None:
+    """API key for a secured Qdrant, or None for an unauthenticated one.
+
+    Qdrant ships with NO authentication: a self-hosted instance reachable on
+    a network anyone can route to is world-readable AND world-writable, which
+    for this system means the evidence corpus could be silently altered
+    underneath every citation the API returns. Hosted deployments must set
+    QDRANT__SERVICE__API_KEY on the server and QDRANT_API_KEY here.
+
+    Resolved at call time for the same reason as qdrant_url() — a
+    module-level read would happen before load_dotenv().
+
+    `or None` so that an empty-string variable behaves like "unset". An
+    empty api_key is not the same as no api_key to qdrant-client, and a
+    blank value left in a .env would otherwise send an empty credential
+    and fail against a local, unsecured instance.
+    """
+    return os.environ.get("QDRANT_API_KEY") or None
+
+
 @dataclass
 class AppResources:
     qdrant_client: QdrantClient
@@ -112,7 +132,7 @@ def load_app_resources() -> AppResources:
     chunk_store = load_chunk_store(CHUNK_STORE_PATH)
 
     # After load_dotenv() above, so .env is honoured.
-    qdrant_client = QdrantClient(url=qdrant_url())
+    qdrant_client = QdrantClient(url=qdrant_url(), api_key=qdrant_api_key())
 
     reranker = _load_reranker()
 

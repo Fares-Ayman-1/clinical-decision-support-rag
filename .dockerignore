@@ -29,9 +29,20 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 
-# Data: bind-mounted at runtime by docker-compose, not baked into the image.
-# The chunk store and indexes are large and change independently of code.
-data/
+# Data: excluded wholesale, then two files re-included by name.
+#
+# docker-compose.yml bind-mounts data/ locally, but a PaaS has no bind
+# mounts — an image without these two files cannot serve a request, because
+# app/api/dependencies.py opens both at startup (CHUNK_STORE_PATH and
+# MVP_SOURCE_CHUNKS_PATH). They are byte-identical 14 MB files, so this adds
+# ~28 MB to the image and nothing else from data/ ships.
+#
+# Order is load-bearing: a negation only takes effect if it FOLLOWS the
+# pattern that excluded the path. `data/**` rather than `data/` so that
+# re-including a file inside an excluded subdirectory works.
+data/**
+!data/chunk_store/medical_chunks.jsonl
+!data/chunks/benchmark/1.0_S1.jsonl
 
 # Source PDFs — copyrighted WHO/USPSTF documents, deliberately never
 # committed and never shipped in an image.

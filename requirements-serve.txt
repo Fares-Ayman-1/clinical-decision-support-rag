@@ -1,0 +1,57 @@
+# Serving subset of requirements.txt — what the API actually imports.
+#
+# requirements.txt remains the full set (ingestion, evaluation, tests) and is
+# what you install for local development. This file is ONLY for the runtime
+# container image, and every version here is pinned to match requirements.txt
+# exactly. If you bump a version there, bump it here too — a silent drift
+# between the two would mean the image runs different code than the tests.
+#
+# What is deliberately absent, and why it is safe:
+#
+#   pymupdf, pdfplumber   PDF parsing — imported only by
+#                         app/services/ingestion/{text,table}_extraction.py and
+#                         validation.py, which the serving path never imports.
+#   scikit-learn, scipy   Only used by scripts/ for evaluation metrics.
+#   aiosqlite             DATABASE_URL/traces.db is declared in .env.example but
+#                         is not read by any code in this repo.
+#   structlog             Superseded by app/observability/logging.py, which uses
+#                         the stdlib logging module directly.
+#   pytest, pytest-asyncio  Test-only.
+#
+# This was verified empirically rather than by reading imports: importing
+# `app.main` and inspecting sys.modules shows none of the above are loaded.
+# `app/services/ingestion/__init__.py` is empty, and tokenization.py — the one
+# ingestion module the serving path does import (via embedding_provider) —
+# imports only `re` and `typing`.
+#
+# Re-check with:
+#   PYTHONPATH=backend python -c "import sys, app.main; \
+#     print([m for m in ('pymupdf','fitz','pdfplumber','sklearn','scipy', \
+#     'structlog','aiosqlite','pytest') if m in sys.modules])"
+# An empty list means this file is still correct.
+
+# --- Backend ---
+fastapi==0.141.1
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+httpx==0.28.1
+
+# --- Retrieval ---
+qdrant-client==1.19.0
+sentence-transformers==5.7.0
+rank-bm25==0.2.2
+numpy==2.2.1
+
+# --- LLM provider ---
+anthropic==0.68.0
+openai==1.99.9
+# OS trust store for TLS instead of the bundled certifi list. Kept in the
+# serving image because provider.py injects it at process startup
+# unconditionally — dropping it would be an ImportError on boot, not a
+# degraded TLS path.
+truststore==0.10.4
+
+# --- Config ---
+pyyaml==6.0.2

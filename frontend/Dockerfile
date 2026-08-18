@@ -23,12 +23,23 @@ RUN npm run build
 
 FROM nginx:1.29-alpine AS runtime
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# A template, not a finished config: the nginx image's entrypoint runs
+# envsubst over /etc/nginx/templates/*.template into /etc/nginx/conf.d/ at
+# start, which is how ${PORT} gets a value. A PaaS assigns the port at
+# runtime, so a hardcoded `listen` means its health check never connects.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
+
+# Restricts envsubst to $PORT alone. Without this it would also expand
+# nginx's own $uri in try_files — to empty, since it is not an environment
+# variable — silently breaking SPA deep links.
+ENV NGINX_ENVSUBST_FILTER=PORT
+# Local default; a PaaS overrides it.
+ENV PORT=5173
 
 EXPOSE 5173
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/" || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
