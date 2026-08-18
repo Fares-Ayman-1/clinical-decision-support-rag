@@ -73,6 +73,21 @@ MIN_SUPPORT_FOR_SUFFICIENT = 2
 # reranker swap invalidates them completely, and recalibrating must not
 # require an image rebuild — set SUFFICIENCY_TAU_{LOW,HIGH}_RERANK on the
 # deployment and restart.
+#
+# !! UNCALIBRATED FOR THE CURRENT DEFAULT RERANKER !!
+# The default reranker is now BAAI/bge-reranker-v2-m3 (multilingual), whose
+# logit scale differs from ms-marco's — but the numbers below are still
+# ms-marco's fitted values, because no labeled fit has been run against bge.
+# They are therefore a placeholder, not a calibration.
+#
+# The failure this produces is silent and one-directional: a threshold that is
+# too high relative to the score distribution reads good evidence as
+# INSUFFICIENT and refuses answerable questions. Nothing errors; the system
+# just declines more than it should.
+#
+# Fix with `python scripts/fit_thresholds.py --write` against the labeled
+# splits while bge is the active reranker, then update the defaults below.
+# Tracked in TODO-PRODUCTION.md.
 import os as _os
 
 TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "0.7285"))

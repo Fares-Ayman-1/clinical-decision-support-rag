@@ -49,9 +49,21 @@ import sys
 #
 # RERANKER_MODEL stays an env var deliberately: that one IS read from the
 # environment, by _load_reranker() in app/api/dependencies.py.
-RERANKER_MODEL = os.environ.get(
-    "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
-)
+# Default must match .env.example and DEPLOYMENT.md. ms-marco-MiniLM is
+# English-only: its uniformly negative logits on non-English questions are read
+# by the sufficiency gate as INSUFFICIENT, auto-refusing every Arabic query.
+# bge-reranker-v2-m3 is multilingual (XLM-R family) and loads through the same
+# CrossEncoder class.
+#
+# A stale default here is not a harmless mismatch. HF_HUB_OFFLINE=1 at runtime
+# means an un-baked reranker is never fetched, and _load_reranker() treats a
+# load failure as a DEGRADED condition rather than an error — so the service
+# starts fine and silently serves unranked results.
+#
+# NOTE: bge's logit scale differs from ms-marco's, so the sufficiency
+# thresholds are married to the wrong model until recalibrated. See
+# SUFFICIENCY_TAU_{LOW,HIGH}_RERANK in app/services/rag/sufficiency_gate.py.
+RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 
 
 def _use_os_trust_store() -> bool:
