@@ -12,6 +12,32 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE}
 ENV VITE_EMERGENCY_NUMBER=${VITE_EMERGENCY_NUMBER}
 
+# Vite inlines VITE_* at BUILD time, so a wrong value here cannot be fixed by
+# restarting the container — it is baked into the JS bundle and needs a
+# rebuild. That makes a silently-wrong default expensive, and localhost:8000
+# is exactly that: in a visitor's browser "localhost" is THEIR machine, so a
+# hosted build carrying the default produces an app that fails for every user
+# while working perfectly on the developer's laptop.
+#
+# Observed in a real deploy: requests went same-origin to the static host and
+# came back "405 Not Allowed" from nginx, which looks like a frontend bug and
+# is not one — the API URL was simply never supplied at build time.
+#
+# Rather than fail (a local `docker build` with no args is legitimate), warn
+# loudly at build time AND again at container start, so the message lands in
+# the deploy logs where someone debugging a hosted app will actually look.
+RUN set -e; \
+    case "$VITE_API_BASE_URL" in \
+      ""|*localhost*|*127.0.0.1*) \
+        echo "WARNING: VITE_API_BASE_URL=${VITE_API_BASE_URL} is baked into this bundle."; \
+        echo "         Fine for local development. In a HOSTED deploy it is broken:"; \
+        echo "         localhost is the VISITOR's machine, so requests never reach the"; \
+        echo "         API — they hit this static host and nginx answers 405 Not Allowed."; \
+        echo "         Rebuild with --build-arg VITE_API_BASE_URL=https://your-api-url"; \
+        ;; \
+      *) echo "Bundle will call the API at ${VITE_API_BASE_URL}" ;; \
+    esac
+
 # A build ARG rather than --mount=type=secret: not every builder supports
 # BuildKit secrets. Railway's rejects `type=secret` at parse time ("other
 # mount types are not supported"), failing the build before any layer runs.
