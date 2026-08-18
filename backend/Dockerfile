@@ -82,7 +82,8 @@ RUN if [ -n "$BUILD_CA" ]; then \
       && update-ca-certificates \
       && export PIP_CERT=/usr/local/share/ca-certificates/build_proxy.crt; \
     fi; \
-    pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+    pip install --no-cache-dir \
+                --extra-index-url https://download.pytorch.org/whl/cpu \
                 -r requirements-serve.txt
 
 COPY backend/ ./backend/

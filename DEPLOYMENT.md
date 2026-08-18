@@ -6,12 +6,13 @@ Railway builds the images on its own machines from your GitHub repo, so **you do
 need a working local Docker to deploy**. Local Docker matters only for verifying the
 image yourself and for seeding the index (Step 6).
 
-**The API image is verified.** Built and run locally at 612 MB, on a deliberately
-non-default `PORT=9137` to prove the port binding: `/api/health` returned `status: ok`
-with all five checks green and 7,381 points, both models warm from the baked cache,
-the `PRESCRIBING_REQUEST` refusal path fired correctly, rate limiting cut over to 429
-after exactly 20 requests with `retry-after: 49`, and logs came out as one JSON object
-per line carrying `request_id`.
+**The API image is verified.** Built and run locally on a deliberately non-default
+`PORT` to prove the port binding rather than pass by accident on the 8000 default:
+`/api/health` returned `status: ok` with all five checks green and 7,381 points, both
+models warm from the baked cache, the `PRESCRIBING_REQUEST` refusal path fired
+correctly, rate limiting cut over to 429 after exactly 20 requests with
+`retry-after: 49`, and logs came out as one JSON object per line carrying
+`request_id`.
 
 > **This deploys a demo, not a medical device.** A public URL makes the system
 > reachable by real people, which raises rather than lowers the weight of the three
@@ -111,7 +112,7 @@ per line carrying `request_id`.
    With Root Directory `backend`, none of those are visible and the build fails on
    the first one. A root context does not mean shipping the whole repo:
    `.dockerignore` excludes `.venv`, `.git`, the PDFs and `.env`, then re-includes
-   exactly those two data files. The built image is 612 MB.
+   exactly those two data files.
 
    **Check the snapshot size in the build log.** The first lines read
    `fetching snapshot / N MB`. A correct root context is **~30-40 MB** (the two
@@ -281,7 +282,7 @@ Then:
 
 **`dockerfile invalid: flag '--mount=...' is missing an id argument`.** Railway's
 builder does not honour the `# syntax=` directive and falls back to a frontend that
-rejects BuildKit secret mounts. Fixed as of commit `fe993bd` — both Dockerfiles now
+rejects BuildKit secret mounts. Fixed by the commit that introduced `BUILD_CA` — both Dockerfiles now
 take the interception CA as a plain `BUILD_CA` build ARG instead. If you still see
 this, you are deploying an older commit.
 
