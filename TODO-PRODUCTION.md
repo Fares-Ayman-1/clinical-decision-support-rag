@@ -39,20 +39,25 @@ and no amount of engineering quality substitutes for them.
 
 ## RAG Quality
 
-- [ ] **Recalibrate the sufficiency thresholds for bge-reranker-v2-m3** — **P1**
-  **Reason:** The default reranker changed from `cross-encoder/ms-marco-MiniLM-L-6-v2` to
-  `BAAI/bge-reranker-v2-m3` (multilingual — ms-marco is English-only and its uniformly negative
-  logits on non-English questions were read as INSUFFICIENT, auto-refusing every Arabic query).
-  The two have DIFFERENT logit scales, but `TAU_HIGH_RERANK` / `TAU_LOW_RERANK` in
-  `app/services/rag/sufficiency_gate.py` still hold ms-marco's fitted values (+0.7285 / -3.9325).
-  They are a placeholder, not a calibration.
-  **Impact:** Silent and one-directional. A threshold that is too high relative to the score
-  distribution reads good evidence as INSUFFICIENT and refuses answerable questions. Nothing
-  errors — the system simply declines more than it should, which on a clinical assistant looks
-  like caution rather than a bug.
-  **Fix:** Run `python scripts/fit_thresholds.py --write` against the labeled splits with bge
-  active, then update the defaults. `SUFFICIENCY_TAU_{LOW,HIGH}_RERANK` can override without an
-  image rebuild in the meantime.
+- [ ] **Recalibrate the sufficiency thresholds for bge-reranker-v2-m3 — THE GATE CURRENTLY FAILS OPEN** — **P0**
+  **Reason:** The default reranker changed to `BAAI/bge-reranker-v2-m3`, whose outputs are
+  sigmoid-normalised to roughly 0..1. `TAU_HIGH_RERANK` / `TAU_LOW_RERANK` still hold ms-marco's
+  fitted values (+0.7285 / -3.9325), which were raw logits on a roughly -10..+10 scale.
+  **Impact — safety-relevant, and in the dangerous direction.** Every bge score clears
+  `tau_low = -3.9325`, so nothing is ever classified INSUFFICIENT. Measured in the built image
+  for "What diet helps with high blood pressure?":
+
+      relevant passage   +0.8687
+      related passage    +0.1373
+      irrelevant passage +0.0000   (a femur-fracture passage)
+
+  The irrelevant passage lands in PARTIAL, so the system generates an answer where it should
+  refuse. SAF-4's evidence-sufficiency gate is the control that stops ungrounded clinical
+  answers; on this scale it is inert.
+  **Interim mitigation:** set `SUFFICIENCY_TAU_LOW_RERANK` / `SUFFICIENCY_TAU_HIGH_RERANK` to
+  values on the 0..1 scale on any deployment running bge. This needs no rebuild.
+  **Fix:** `python scripts/fit_thresholds.py --write` against the labeled splits with bge active,
+  then update the defaults.
 
 - [ ] **Finish the chunking-strategy benchmark (S2, S4, S5, S7)** — **P1**
   **Reason:** Only config S1 was successfully indexed and evaluated (PROJECT-STATE.md §5, §8 R13) —

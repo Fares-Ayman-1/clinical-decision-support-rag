@@ -80,14 +80,27 @@ MIN_SUPPORT_FOR_SUFFICIENT = 2
 # ms-marco's fitted values, because no labeled fit has been run against bge.
 # They are therefore a placeholder, not a calibration.
 #
-# The failure this produces is silent and one-directional: a threshold that is
-# too high relative to the score distribution reads good evidence as
-# INSUFFICIENT and refuses answerable questions. Nothing errors; the system
-# just declines more than it should.
+# The gate FAILS OPEN, which is the dangerous direction. Measured against
+# bge-reranker-v2-m3 in the built image, for the query "What diet helps with
+# high blood pressure?":
+#
+#   relevant passage   +0.8687
+#   related passage    +0.1373
+#   irrelevant passage +0.0000   (a femur-fracture passage)
+#
+# bge outputs are sigmoid-normalised to roughly 0..1; ms-marco emitted raw
+# logits spanning roughly -10..+10. So EVERY bge score clears
+# tau_low = -3.9325, nothing is ever classified INSUFFICIENT, and the
+# irrelevant passage above lands in PARTIAL — the system answers where it
+# should refuse.
+#
+# That inverts the property this gate exists to provide. Until it is
+# recalibrated, a deployment running bge should set
+# SUFFICIENCY_TAU_{LOW,HIGH}_RERANK to values on the 0..1 scale.
 #
 # Fix with `python scripts/fit_thresholds.py --write` against the labeled
 # splits while bge is the active reranker, then update the defaults below.
-# Tracked in TODO-PRODUCTION.md.
+# Tracked in TODO-PRODUCTION.md as P0.
 import os as _os
 
 TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "0.7285"))

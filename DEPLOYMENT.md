@@ -164,6 +164,25 @@ correctly, rate limiting cut over to 429 after exactly 20 requests with
      --set LOG_LEVEL=INFO
    ```
 
+   > **Safety warning — the sufficiency gate is mis-scaled for this reranker.**
+   > `BAAI/bge-reranker-v2-m3` returns sigmoid-normalised scores (~0..1), but the
+   > gate's thresholds are still ms-marco's raw-logit values (`+0.7285` / `-3.9325`).
+   > Every bge score clears `tau_low = -3.9325`, so **nothing is ever classified
+   > INSUFFICIENT** and the system answers where it should refuse. Measured in the
+   > built image: an irrelevant passage scored `+0.0000` and still landed in PARTIAL.
+   >
+   > SAF-4's evidence-sufficiency gate is the control that stops ungrounded clinical
+   > answers. On this scale it is inert. Until `scripts/fit_thresholds.py` is re-run
+   > against bge, set both overrides to values on the 0..1 scale:
+   >
+   > ```
+   > SUFFICIENCY_TAU_LOW_RERANK   e.g. 0.30
+   > SUFFICIENCY_TAU_HIGH_RERANK  e.g. 0.60
+   > ```
+   >
+   > Those two numbers are a **stopgap, not a calibration** — they restore a working
+   > ordering, not a fitted operating point. Tracked as P0 in `TODO-PRODUCTION.md`.
+
    **There is deliberately no `EMBEDDING_MODEL` variable.** The embedding model is
    selected in `config/embedding.yaml` and nowhere else - no code reads such a
    variable, and `backend/scripts/bake_models.py` reads that same file, so the image
