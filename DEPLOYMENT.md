@@ -90,17 +90,35 @@ per line carrying `request_id`.
 ## Step 2 - Create the `api` service
 
 1. **+ New -> GitHub Repo** -> this repo. Rename the service to **`api`**.
-2. **Settings -> Build:**
-   - Root Directory: `/`
-   - Dockerfile Path: `backend/Dockerfile`
+2. **Set Root Directory to `/`** (Settings -> Build, or Source).
 
-   The build context must be the repo root - the image copies `backend/`, `config/`
-   and two files from `data/`.
+   That is the only build setting you need to touch. Everything else — the
+   Dockerfile path, the health check, the 300s timeout, the replica count — is
+   already pinned in `railway.json` at the repo root, so it does not matter whether
+   your console shows a "Dockerfile Path" field (not every version does).
+
+   **Why root and not `backend`?** Root Directory is the Docker *build context* —
+   the set of files a `COPY` can reach. `backend/Dockerfile` copies four things
+   that live outside `backend/`:
+
+   ```
+   COPY requirements-serve.txt ./
+   COPY config/ ./config/
+   COPY data/chunk_store/medical_chunks.jsonl ./data/chunk_store/
+   COPY data/chunks/benchmark/1.0_S1.jsonl ./data/chunks/benchmark/
+   ```
+
+   With Root Directory `backend`, none of those are visible and the build fails on
+   the first one. A root context does not mean shipping the whole repo:
+   `.dockerignore` excludes `.venv`, `.git`, the PDFs and `.env`, then re-includes
+   exactly those two data files. The built image is 612 MB.
 3. **Settings -> Networking -> Generate Domain.** Note the URL, e.g.
    `https://api-production-xxxx.up.railway.app`.
-4. **Settings -> Deploy -> Health Check Path:** `/api/health`.
-   Set the healthcheck timeout to **300 seconds**. Startup loads the embedding model
-   and warms the cross-encoder; the default window will fail a healthy boot.
+4. **Health check — nothing to do.** `railway.json` already sets the path to
+   `/api/health` and the timeout to 300s (startup loads the embedding model and
+   warms the cross-encoder, so a shorter window fails a perfectly healthy boot).
+   Only set these in the console if you see the health check failing on a boot
+   that the logs show completing normally.
 5. **Variables:**
 
    | Variable | Value |
@@ -147,10 +165,12 @@ per line carrying `request_id`.
 ## Step 3 - Create the `web` service
 
 1. **+ New -> GitHub Repo** -> the same repo. Rename to **`web`**.
-2. **Settings -> Build:**
-   - Root Directory: `frontend`
-   - Dockerfile Path: `Dockerfile`
-3. **Settings -> Networking -> Generate Domain.** Note the URL.
+2. **Set Root Directory to `frontend`.**
+
+   Again the only build setting to touch — `frontend/railway.json` pins the rest.
+   A narrower context than the `api` service is correct here: this Dockerfile only
+   copies files inside `frontend/`, so a smaller context uploads faster.
+3. **Networking -> Generate Domain.** Note the URL.
 4. **Variables** -> `VITE_API_BASE_URL` = the **`api`** URL from Step 2.
 
    This is a **build-time** value. Vite inlines it into the JS bundle, so changing it
