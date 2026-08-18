@@ -75,8 +75,15 @@ MIN_SUPPORT_FOR_SUFFICIENT = 2
 # deployment and restart.
 import os as _os
 
-TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "0.7285"))
-TAU_LOW_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_LOW_RERANK", "-3.9325"))
+# Defaults recalibrated 2026-08-18 for cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+# (multilingual swap): 20-query live-API calibration against the deployed stack
+# (12 dev in-domain, 7 unique out-of-domain), tau_low = just under the
+# in-domain minimum (-3.52) -> refuses 5/7 OOD with 0/12 false refusals;
+# tau_high = in-domain p60. Directionally sound but coarser than the original
+# fit_thresholds.py run - re-fit properly when a capable machine is available.
+# (The ms-marco-era fitted values were -3.9325 / 0.7285.)
+TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "-0.39"))
+TAU_LOW_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_LOW_RERANK", "-3.60"))
 
 # RRF score scale (~0.01-0.06 for top-5 on this corpus). STILL PROVISIONAL —
 # only reachable on the reranker-failure fallback path, never fitted.
