@@ -289,7 +289,10 @@ def _generate(query: str, hits: list[tuple[dict, dict]]) -> str:
         "You are a clinical evidence assistant. Answer ONLY from the numbered "
         "guideline excerpts provided. Cite every claim as [n]. If the excerpts "
         "are insufficient to answer safely, say so plainly and do not guess. "
-        "Never give drug doses. End with: 'This is not medical advice.'"
+        "Never give drug doses. Answer in the SAME LANGUAGE as the question — "
+        "an Arabic question gets an Arabic answer — even though the excerpts "
+        "are English; citation markers [n] stay as-is. "
+        "End with: 'This is not medical advice.' translated into that language."
     )
     try:
         r = httpx.post(

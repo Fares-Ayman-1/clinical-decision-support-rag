@@ -146,6 +146,24 @@ class OrchestratorResult:
     dose_block: DoseScanResult | None = None
 
 
+def _select_rerank_query(patient_message: str, english_variants: list[str]) -> str:
+    """English questions keep the original — the sufficiency-gate thresholds
+    were fitted on exactly that population. A mostly-non-Latin question falls
+    back to its first English rewrite so the English-only cross-encoder scores
+    a pair it can actually judge. Threshold: <50% of alphabetic characters are
+    ASCII (an Arabic/Chinese/Russian question fails that decisively; an English
+    question with a stray unicode symbol passes it)."""
+    if not english_variants:
+        return patient_message
+    letters = [c for c in patient_message if c.isalpha()]
+    if not letters:
+        return patient_message
+    latin = sum(1 for c in letters if c.isascii())
+    if latin / len(letters) >= 0.5:
+        return patient_message
+    return english_variants[0]
+
+
 def run_query(
     client: QdrantClient,
     config_id: str | None,
@@ -269,8 +287,17 @@ def run_query(
         record = chunk_store.get(r.chunk_id)
         if record is not None:
             candidates.append((r.chunk_id, record.text))
-    rerank_run = reranker.rerank(patient_message, candidates, top_k=FINAL_TOP_K)
-    trace.record("rerank", {"rerank_used": rerank_run.rerank_used, "fallback_reason": rerank_run.fallback_reason, "top_k": len(rerank_run.results)})
+    # The cross-encoder (ms-marco-MiniLM) is ENGLISH-ONLY. Scoring a
+    # non-English question against English chunks produces uniformly deep
+    # negative logits, which the sufficiency gate (thresholds fitted on
+    # English logit distributions) reads as INSUFFICIENT — so every Arabic
+    # question was auto-refused even when Qwen's multilingual dense arm had
+    # retrieved the right chunks. When the question is mostly non-Latin
+    # script and an English rewrite exists, rerank against the rewrite; the
+    # English path stays byte-identical so the fitted thresholds remain valid.
+    rerank_query = _select_rerank_query(patient_message, queries[1:])
+    rerank_run = reranker.rerank(rerank_query, candidates, top_k=FINAL_TOP_K)
+    trace.record("rerank", {"rerank_used": rerank_run.rerank_used, "fallback_reason": rerank_run.fallback_reason, "top_k": len(rerank_run.results), "reranked_against_rewrite": rerank_query is not patient_message})
 
     # PipelineResult ties retrieval+rerank together in the shape
     # build_evidence_pack expects, reusing its assembly logic rather than
