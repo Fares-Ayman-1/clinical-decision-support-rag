@@ -296,8 +296,22 @@ def run_query(
     # script and an English rewrite exists, rerank against the rewrite; the
     # English path stays byte-identical so the fitted thresholds remain valid.
     rerank_query = _select_rerank_query(patient_message, queries[1:])
-    rerank_run = reranker.rerank(rerank_query, candidates, top_k=FINAL_TOP_K)
-    trace.record("rerank", {"rerank_used": rerank_run.rerank_used, "fallback_reason": rerank_run.fallback_reason, "top_k": len(rerank_run.results), "reranked_against_rewrite": rerank_query is not patient_message})
+    if rerank_query is patient_message:
+        rerank_run = reranker.rerank(rerank_query, candidates, top_k=FINAL_TOP_K)
+    else:
+        # Translated path: an LLM paraphrase reranks systematically a few
+        # points below a native phrasing, and tau_low was fitted on native
+        # originals — measured live, the same ankle-pain question scored
+        # -3.40 asked in English but -6.95 through its first Arabic rewrite,
+        # straddling tau_low = -3.93. Scoring every English variant and
+        # keeping the best-scoring run judges the question by its strongest
+        # faithful phrasing instead of by luck of variant ordering. Costs
+        # ~1s per extra variant (25 pairs each), non-English queries only.
+        variant_runs = [reranker.rerank(v, candidates, top_k=FINAL_TOP_K) for v in queries[1:]]
+        def _top(run):
+            return max((r.rerank_score for r in run.results if r.rerank_score is not None), default=float("-inf"))
+        rerank_run = max(variant_runs, key=_top)
+    trace.record("rerank", {"rerank_used": rerank_run.rerank_used, "fallback_reason": rerank_run.fallback_reason, "top_k": len(rerank_run.results), "reranked_against_rewrite": rerank_query is not patient_message, "variants_scored": 1 if rerank_query is patient_message else len(queries) - 1})
 
     # PipelineResult ties retrieval+rerank together in the shape
     # build_evidence_pack expects, reusing its assembly logic rather than

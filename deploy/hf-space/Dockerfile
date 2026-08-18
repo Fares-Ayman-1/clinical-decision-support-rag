@@ -68,7 +68,14 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # confusing offline error instead of downloading. Baking also removes the
 # ~80s cold-load stall on the first query.
 ENV HF_HOME=/opt/hf-cache
-ARG RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+# bge-reranker-v2-m3 replaces ms-marco-MiniLM: the MS MARCO cross-encoder is
+# English-only, and its uniformly negative logits on non-English questions
+# were read by the sufficiency gate as INSUFFICIENT — auto-refusing every
+# Arabic query. bge-reranker-v2-m3 is multilingual (XLM-R family, same
+# lineage as bge-m3), needs no remote code, and loads through the same
+# CrossEncoder class. NOTE: its logit scale differs, so the gate thresholds
+# MUST be recalibrated (SUFFICIENCY_TAU_{LOW,HIGH}_RERANK env vars).
+ARG RERANKER_MODEL=BAAI/bge-reranker-v2-m3
 ENV RERANKER_MODEL=${RERANKER_MODEL}
 
 # The embedding model name comes from config/embedding.yaml, NOT from an
