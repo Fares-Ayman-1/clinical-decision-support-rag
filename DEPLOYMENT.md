@@ -112,6 +112,12 @@ per line carrying `request_id`.
    the first one. A root context does not mean shipping the whole repo:
    `.dockerignore` excludes `.venv`, `.git`, the PDFs and `.env`, then re-includes
    exactly those two data files. The built image is 612 MB.
+
+   **Check the snapshot size in the build log.** The first lines read
+   `fetching snapshot / N MB`. A correct root context is **~30-40 MB** (the two
+   14 MB data files dominate it). If it says 3-4 MB, Root Directory is still
+   `backend` and the build will fail on `COPY requirements-serve.txt`, no matter
+   what else is configured. It is the fastest way to catch this.
 3. **Settings -> Networking -> Generate Domain.** Note the URL, e.g.
    `https://api-production-xxxx.up.railway.app`.
 4. **Health check — nothing to do.** `railway.json` already sets the path to
@@ -272,6 +278,15 @@ Then:
 ---
 
 ## Troubleshooting
+
+**`dockerfile invalid: flag '--mount=...' is missing an id argument`.** Railway's
+builder does not honour the `# syntax=` directive and falls back to a frontend that
+rejects BuildKit secret mounts. Fixed as of commit `fe993bd` — both Dockerfiles now
+take the interception CA as a plain `BUILD_CA` build ARG instead. If you still see
+this, you are deploying an older commit.
+
+**`COPY requirements-serve.txt: not found`, or a snapshot of only 3-4 MB.** Root
+Directory is `backend` rather than `/`. See Step 2 — a correct context is ~30-40 MB.
 
 **Health check fails, logs show no error.** Almost always `$PORT`. Confirm you are on
 commit `29178e8`+ and that you have not set a `PORT` variable yourself.

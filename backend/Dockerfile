@@ -57,10 +57,31 @@ RUN apt-get update \
 # default Linux wheel, which is the CUDA build and drags in ~2.5 GB of
 # nvidia-* packages for an application that runs MiniLM and a cross-encoder
 # on CPU and never touches a GPU.
+# BUILD_CA is a build ARG, not a --mount=type=secret, because not every
+# builder supports BuildKit secrets — Railway's rejects `type=secret`
+# outright ("other mount types are not supported") and the build fails at
+# parse time, before any layer runs. An ARG parses everywhere.
+#
+# The tradeoff is real and accepted: an ARG value is recorded in image
+# history, whereas a secret is not. This one is a PUBLIC certificate — the
+# root CA of a TLS interceptor, not a key — so there is nothing to leak.
+# Never pass an actual credential this way.
+#
+# Empty on any normal network (including Railway), where every guard below
+# is false and the build proceeds over ordinary TLS. Locally:
+#   docker build --build-arg BUILD_CA="$(cat corp-root.crt)" ...
+ARG BUILD_CA=""
+
 COPY requirements-serve.txt ./
-RUN --mount=type=cache,target=/root/.cache/pip \
-    --mount=type=secret,id=pip_ca,required=false \
-    if [ -s /run/secrets/pip_ca ]; then export PIP_CERT=/run/secrets/pip_ca; fi; \
+# --extra-index-url pins torch to the CPU build. Without it pip installs the
+# default Linux wheel, which is the CUDA build and drags in ~2.5 GB of
+# nvidia-* packages for an application that runs MiniLM and a cross-encoder
+# on CPU and never touches a GPU.
+RUN if [ -n "$BUILD_CA" ]; then \
+      printf '%s\n' "$BUILD_CA" > /usr/local/share/ca-certificates/build_proxy.crt \
+      && update-ca-certificates \
+      && export PIP_CERT=/usr/local/share/ca-certificates/build_proxy.crt; \
+    fi; \
     pip install --extra-index-url https://download.pytorch.org/whl/cpu \
                 -r requirements-serve.txt
 
@@ -114,12 +135,8 @@ USER appuser
 #
 # On a normal network the secret is absent, every line below no-ops, and the
 # download proceeds over ordinary TLS — which is what happens on a PaaS.
-USER root
-RUN --mount=type=secret,id=pip_ca,required=false \
-    if [ -s /run/secrets/pip_ca ]; then \
-      cp /run/secrets/pip_ca /usr/local/share/ca-certificates/build_proxy.crt \
-      && update-ca-certificates; \
-    fi
+# The CA, if any, was already installed system-wide by the pip layer above
+# and persists in this image, so there is nothing to re-mount here.
 USER appuser
 # truststore.inject_into_ssl() is NOT sufficient here, which is worth stating
 # because it is the obvious thing to reach for and it silently does nothing.

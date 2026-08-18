@@ -12,11 +12,25 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE}
 ENV VITE_EMERGENCY_NUMBER=${VITE_EMERGENCY_NUMBER}
 
+# A build ARG rather than --mount=type=secret: not every builder supports
+# BuildKit secrets. Railway's rejects `type=secret` at parse time ("other
+# mount types are not supported"), failing the build before any layer runs.
+# An ARG parses everywhere.
+#
+# Safe here only because this is a PUBLIC certificate — the root CA of a TLS
+# interceptor, not a key — and ARG values are recorded in image history.
+# Never pass a real credential this way.
+#
+# Empty on any normal network (including Railway); locally:
+#   docker build --build-arg BUILD_CA="$(cat corp-root.crt)" ...
+ARG BUILD_CA=""
+
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-  --mount=type=secret,id=npm_ca,required=false \
-  if [ -s /run/secrets/npm_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/npm_ca; fi; \
-  npm ci --prefer-offline --no-audit --no-fund --maxsockets=4
+RUN if [ -n "$BUILD_CA" ]; then \
+      printf '%s\n' "$BUILD_CA" > /tmp/build_ca.crt \
+      && export NODE_EXTRA_CA_CERTS=/tmp/build_ca.crt; \
+    fi; \
+    npm ci --prefer-offline --no-audit --no-fund --maxsockets=4
 
 COPY . .
 RUN npm run build
