@@ -76,16 +76,20 @@ def _tokenize(s: str) -> list[str]:
 
 BM25 = BM25Okapi([_tokenize(t) for t in TEXTS])
 
-# Loaded on CPU at import; @spaces.GPU functions move computation to the GPU
-# slice. Left padding is REQUIRED: this family pools the last token, and
-# right padding would pool a PAD token into quietly wrong vectors.
+# ZeroGPU contract: `.to("cuda")` must happen at MODULE scope — the `spaces`
+# package virtualizes CUDA in the main process and materializes the model
+# inside the GPU worker. Loading on CPU and moving it inside a @spaces.GPU
+# function is exactly what crashed with the NVML INTERNAL ASSERT in
+# CUDACachingAllocator. Left padding is REQUIRED: this family pools the last
+# token, and right padding would pool a PAD token into quietly wrong vectors.
 print("loading embedding model…", flush=True)
-MODEL = SentenceTransformer(
-    EMB_MODEL,
-    device="cpu",
-    tokenizer_kwargs={"padding_side": "left"},
-)
+import inspect as _inspect
+
+_st_params = _inspect.signature(SentenceTransformer.__init__).parameters
+_pad_kw = "processor_kwargs" if "processor_kwargs" in _st_params else "tokenizer_kwargs"
+MODEL = SentenceTransformer(EMB_MODEL, **{_pad_kw: {"padding_side": "left"}})
 MODEL.max_seq_length = 32768  # the checkpoint's real ceiling (config.json)
+MODEL.to("cuda")  # virtualized by `spaces` — see comment above
 
 VECTORS: np.ndarray | None = None
 _INDEX_LOCK = threading.Lock()
@@ -130,26 +134,52 @@ def _publish_vectors(vecs: np.ndarray) -> None:
         print(f"vector publish failed: {type(exc).__name__}: {exc}", flush=True)
 
 
+# No gr.Progress and no device= inside GPU functions: arguments are pickled
+# into the GPU worker process, and the model is already (virtually) on cuda.
 @spaces.GPU(duration=240)
-def _gpu_embed_corpus(progress=gr.Progress()) -> np.ndarray:
-    out = []
-    batch = 64
-    total = (len(TEXTS) + batch - 1) // batch
-    for i in range(0, len(TEXTS), batch):
-        out.append(
-            MODEL.encode(
-                TEXTS[i : i + batch], device="cuda", batch_size=batch,
-                convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False,
-            )
+def _gpu_embed_corpus() -> np.ndarray:
+    """TOKEN-budget batching, not a fixed batch count. A fixed batch of 64 was
+    a masked OOM here: this corpus holds a 4,708-token table chunk (never
+    split, by the main repo's safety rule), and 64 items padded to 4,708
+    tokens exceeds a ZeroGPU MIG slice's memory — surfacing as the cryptic
+    'NVML_SUCCESS == r INTERNAL ASSERT' in CUDACachingAllocator rather than a
+    clean torch.cuda.OutOfMemoryError. Same design as the Docker provider's
+    _encode(); results are scattered back to corpus order because callers
+    index vectors positionally."""
+    tok = MODEL.tokenizer
+    cap = MODEL.max_seq_length
+    lengths = [min(len(tok.encode(t)), cap) for t in TEXTS]
+    order = sorted(range(len(TEXTS)), key=lambda i: -lengths[i])
+
+    MAX_BATCH_TOKENS = 32768
+    MAX_BATCH_ITEMS = 128
+    batches, current, current_max = [], [], 0
+    for i in order:
+        cand = max(current_max, lengths[i])
+        if current and (cand * (len(current) + 1) > MAX_BATCH_TOKENS or len(current) >= MAX_BATCH_ITEMS):
+            batches.append(current)
+            current, current_max = [i], lengths[i]
+        else:
+            current.append(i)
+            current_max = cand
+    if current:
+        batches.append(current)
+
+    out = np.zeros((len(TEXTS), MODEL.get_sentence_embedding_dimension()), dtype=np.float32)
+    for batch in batches:
+        vecs = MODEL.encode(
+            [TEXTS[i] for i in batch], batch_size=len(batch),
+            convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False,
         )
-        progress(((i // batch) + 1) / total, desc=f"Embedding corpus on GPU ({i + batch}/{len(TEXTS)})")
-    return np.vstack(out).astype(np.float32)
+        for pos, idx in enumerate(batch):
+            out[idx] = vecs[pos]
+    return out
 
 
 @spaces.GPU(duration=60)
 def _gpu_embed_query(q: str) -> np.ndarray:
     vec = MODEL.encode(
-        [f"{QUERY_PREFIX}{q}"], device="cuda",
+        [f"{QUERY_PREFIX}{q}"],
         convert_to_numpy=True, normalize_embeddings=True, show_progress_bar=False,
     )
     return vec[0].astype(np.float32)
@@ -166,7 +196,8 @@ def _ensure_index(progress=gr.Progress()) -> str:
         if cached is not None:
             VECTORS = cached
             return "ready (restored from cache)"
-        vecs = _gpu_embed_corpus(progress)
+        progress(0.1, desc="Embedding corpus on GPU (~1 min, first launch only)")
+        vecs = _gpu_embed_corpus()
         VECTORS = vecs
         _publish_vectors(vecs)
         return "ready (built on GPU and published)"
@@ -228,7 +259,42 @@ def _generate(query: str, hits: list[tuple[dict, dict]]) -> str:
         return f"_LLM call failed ({type(exc).__name__}) — retrieved evidence shown below._"
 
 
+@spaces.GPU(duration=30)
+def _gpu_diag() -> str:
+    """Minimal CUDA op inside the GPU worker: separates 'ZeroGPU/torch broken'
+    from 'this app's model call broken' with one click."""
+    import torch
+
+    lines = [f"torch {torch.__version__}", f"cuda available: {torch.cuda.is_available()}"]
+    a = torch.randn(512, 512, device="cuda")
+    lines.append(f"matmul ok: {(a @ a).sum().item():.1f}")
+    lines.append(f"device: {torch.cuda.get_device_name(0)}")
+    v = MODEL.encode(["diagnostic sentence"], convert_to_numpy=True, normalize_embeddings=True)
+    lines.append(f"model encode ok: dim={v.shape[1]}, norm={float((v[0]**2).sum())**0.5:.4f}")
+    return "\n".join(lines)
+
+
+def diagnostics() -> str:
+    import traceback
+
+    try:
+        return _gpu_diag()
+    except Exception:
+        return "```\n" + traceback.format_exc()[-1800:] + "\n```"
+
+
 def answer(query: str, progress=gr.Progress()):
+    import traceback
+
+    try:
+        return _answer_inner(query, progress)
+    except Exception:
+        # Surface the real traceback in the UI/API instead of an opaque
+        # "RuntimeError" — remote log streaming has been unreliable.
+        return "```\n" + traceback.format_exc()[-1800:] + "\n```", "", None
+
+
+def _answer_inner(query: str, progress):
     query = (query or "").strip()
     if not query:
         return "Please enter a clinical question.", "", None
@@ -279,6 +345,12 @@ with gr.Blocks(title="Clinical CDS Assistant") as demo:
     )
     go.click(answer, inputs=q, outputs=[ans, evid, table])
     q.submit(answer, inputs=q, outputs=[ans, evid, table])
+    with gr.Accordion("Diagnostics", open=False):
+        diag_btn = gr.Button("Run GPU diagnostics")
+        diag_out = gr.Markdown()
+        diag_btn.click(diagnostics, outputs=diag_out)
 
 if __name__ == "__main__":
-    demo.launch()
+    # show_error surfaces worker exceptions to API clients — without it a GPU
+    # crash reaches gradio_client as an opaque "enable verbose error" message.
+    demo.launch(show_error=True)

@@ -1,5 +1,12 @@
-# torch arrives via sentence-transformers; on Spaces the default wheel is
-# CUDA-enabled, which is what ZeroGPU needs.
+# torch is PINNED for ZeroGPU, to a version from the platform's own allow-list.
+# The list is enforced at build time; ZeroGPU rejected 2.5.1 with:
+#   "torch version in requirements.txt is not compatible with ZeroGPU.
+#    Supported versions: 2.11.0, 2.10.0, 2.9.1, 2.8.0"
+# and the unpinned latest (newer than 2.11) NVML-asserted inside the GPU
+# worker (c10/cuda/CUDACachingAllocator.cpp:1165) after packing succeeded.
+# Newest allowed version, so transformers/sentence-transformers stay current:
+torch==2.11.0
+
 sentence-transformers>=5.0
 rank_bm25==0.2.2
 httpx>=0.27
