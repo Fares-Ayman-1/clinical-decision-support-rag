@@ -73,7 +73,7 @@ from qdrant_client import QdrantClient  # noqa: E402
 from app.api.dependencies import (  # noqa: E402
     CHUNK_STORE_PATH,
     MVP_SOURCE_CHUNKS_PATH,
-    QDRANT_URL,
+    qdrant_url,
     _load_reranker,
 )
 from app.llm.provider import load_llm_provider  # noqa: E402
@@ -129,7 +129,7 @@ def main() -> int:
     chunk_store = load_chunk_store(CHUNK_STORE_PATH)
     provider = SentenceTransformerProvider(load_embedding_config())
     bm25 = build_bm25_index(chunks)
-    client = QdrantClient(url=QDRANT_URL)
+    client = QdrantClient(url=qdrant_url())
     reranker = _load_reranker()
     llm = load_llm_provider()
 

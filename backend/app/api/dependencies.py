@@ -6,6 +6,7 @@ loads into memory at startup" / "warm the reranker at startup" MVP items.
 
 from __future__ import annotations
 
+import os
 import pathlib
 from dataclasses import dataclass
 
@@ -28,8 +29,26 @@ CHUNK_STORE_PATH = REPO_ROOT / "data" / "chunk_store" / "medical_chunks.jsonl"
 # 5-config chunking-strategy comparison, R13, is still incomplete; S1 is
 # the one config proven end-to-end). Swap once the comparison finishes.
 MVP_SOURCE_CHUNKS_PATH = REPO_ROOT / "data" / "chunks" / "benchmark" / "1.0_S1.jsonl"
-QDRANT_URL = "http://localhost:6333"
+DEFAULT_QDRANT_URL = "http://localhost:6333"
 KB_VERSION = "1.0"
+
+
+def qdrant_url() -> str:
+    """Resolved at CALL time, not import time.
+
+    Two reasons it is a function rather than a module constant:
+
+    - Inside a container, "localhost" is the API container itself, so a
+      hardcoded value makes the composed deployment unable to reach Qdrant
+      at all. docker-compose.yml already sets QDRANT_URL=http://qdrant:6333
+      and .env documents it — nothing was reading either.
+    - A module-level `os.environ.get(...)` would run at import, which is
+      BEFORE load_dotenv() in load_app_resources(). Values from .env would
+      be silently ignored while appearing to be supported.
+
+    The localhost default keeps bare-metal `uvicorn` working unchanged.
+    """
+    return os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL)
 
 
 @dataclass
@@ -92,7 +111,8 @@ def load_app_resources() -> AppResources:
 
     chunk_store = load_chunk_store(CHUNK_STORE_PATH)
 
-    qdrant_client = QdrantClient(url=QDRANT_URL)
+    # After load_dotenv() above, so .env is honoured.
+    qdrant_client = QdrantClient(url=qdrant_url())
 
     reranker = _load_reranker()
 
