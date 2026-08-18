@@ -98,6 +98,11 @@ python scripts/evaluate_generation.py --split out_of_domain --skip-faithfulness 
 
 # Safety suite
 pytest tests/test_safety.py -v
+
+# Full suite, including HTTP-layer integration tests. No Qdrant, no model
+# downloads, and no API key required — tests/conftest.py puts backend/ on
+# sys.path, so this works from a clean shell.
+pytest tests/ -q
 ```
 
 ---
@@ -273,9 +278,9 @@ programmatic validation over trusting instruction-following.
 
 ### 8.1 Safety suite
 
-`pytest tests/test_safety.py` — **109 tests passing** system-wide, 46 of them safety-specific. Each
-test names the SAF requirement it pins, so a failure reports which *guarantee* broke rather than
-which function changed.
+`pytest tests/` — **183 tests passing** system-wide (2 skipped, both requiring a live Qdrant), 46 of
+them safety-specific and 46 HTTP-layer integration tests. Each test names the SAF requirement it
+pins, so a failure reports which *guarantee* broke rather than which function changed.
 
 Covered: rule provenance (SAF-2.4), red-flag firing and non-firing, the urgency-floor invariant
 (SAF-6.2), emergency lead ordering (SAF-6.3), wellness suppression (SAF-6.4), config-sourced
@@ -356,6 +361,34 @@ The harness now prints completion rate **before** any metric, computes every rat
 an invalid run** (a target comparison is an implicit claim of validity), and exits non-zero. Both
 runs backing this document carry `"run_invalid": false, "completion_rate": 1.0` in their summary
 JSON.
+
+### 8.5 HTTP-layer integration tests
+
+`tests/test_integration_api.py` — **46 tests** driving the real FastAPI app through `TestClient`.
+Qdrant, the embedding model, the cross-encoder, and the LLM are replaced; the middleware chain, the
+response builders, every exception handler, and the full Pydantic response contract are not. The
+safety engines (`check_red_flags`, `assess_risk`, `decide_actions`) run for real — they are pure
+functions, so the fixtures assert against genuine risk output rather than hand-written guesses.
+
+This layer exists because **two production 500s escaped both the unit and safety suites** and were
+found only by hitting the running server by hand:
+
+| Bug | Why unit tests missed it |
+|---|---|
+| `extra={"message": …}` collided with a reserved `LogRecord` attribute; `KeyError` raised *inside* the logging call turned every `/api/query` into a 500 | The defect was the call site in `main.py`, not the logger — nothing exercised both together |
+| A refusal returned `SufficiencyState.value` (`"INSUFFICIENT"`) where `RefusalOut.reason` requires `"INSUFFICIENT_EVIDENCE"`, failing response validation | The refusal path never executed under the placeholder thresholds then in use |
+
+**The suite was mutation-tested rather than assumed effective.** Four defects were reintroduced into
+`main.py` one at a time — disabling wellness suppression (SAF-6.4), putting `str(error)` back in the
+error body (NFR-3.5), unwiring the Qdrant→503 handler (F.6), and removing the empty-`evidence_ids`
+guard. Each failed exactly one test. A fifth mutation (a comment-only edit) correctly failed nothing.
+
+That exercise also corrected one test that was **passing for the wrong reason**: reintroducing the
+`extra={"message": …}` bug left the whole suite green, because `_SafeExtraLogger` now renames
+colliding keys globally and makes that failure unreachable by construction. The test was rewritten to
+force a reserved key through the handler's own logging call, so it pins the property that actually
+protects the endpoint — a telemetry call must never break the request it is observing — instead of
+one call site's choice of dictionary key.
 
 ---
 
