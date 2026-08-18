@@ -21,6 +21,7 @@ when the mismatch was found and fixed).
 
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Union
@@ -30,7 +31,13 @@ import openai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+# Common base of ResponseHandlingException (connection refused/timeout) and
+# UnexpectedResponse (Qdrant answered with an error status).
+from qdrant_client.http.exceptions import ApiException as QdrantException
+
 from app.api.dependencies import AppResources, load_app_resources
+from app.observability.logging import app_logger, configure_logging, get_request_id, redact
+from app.observability.middleware import RateLimitMiddleware, RequestContextMiddleware
 from app.schemas.evidence import EvidenceDetailOut
 from app.schemas.health import (
     ChunkStoreCheck,
@@ -69,25 +76,116 @@ _resources: AppResources | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _resources
+    # Before loading resources, so startup itself is logged in the same
+    # structured format as everything else.
+    configure_logging(os.environ.get("LOG_LEVEL", "INFO"))
     _resources = load_app_resources()
+    app_logger.info(
+        "startup complete",
+        extra={
+            "chunks": len(_resources.chunk_store),
+            "reranker": _resources.reranker.__class__.__name__,
+            "llm_model": _resources.llm_model,
+        },
+    )
     yield
     _resources = None
 
 
 app = FastAPI(title="AI Clinical Decision Support Lite", lifespan=lifespan)
 
+# NFR-3.4 — CORS restricted to the frontend origin, read from the
+# environment rather than hardcoded. Comma-separated so a deployment can
+# allow a preview origin alongside production without a code change.
+# Deliberately NOT defaulting to "*": a wildcard here would let any page on
+# the internet submit a patient's symptoms to this backend.
+_origins = [
+    o.strip() for o in os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # .env FRONTEND_ORIGIN
+    allow_origins=_origins,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Retry-After"],
 )
+
+# NFR-3.3 — rate limiting on /api/query only. It costs 4+ LLM calls per
+# request; /api/health and /api/evidence are cheap reads and are left
+# unthrottled so monitoring and the evidence inspector never trip it.
+app.add_middleware(
+    RateLimitMiddleware,
+    limit=int(os.environ.get("RATE_LIMIT_REQUESTS", "20")),
+    window_seconds=int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60")),
+    paths=("/api/query",),
+)
+
+# Outermost so every request — including one rejected by the rate limiter —
+# gets a request_id and a log line. Starlette applies middleware in reverse
+# registration order, so this must be registered LAST to run FIRST.
+app.add_middleware(RequestContextMiddleware)
 
 
 def _resources_or_503() -> AppResources:
     if _resources is None:
-        raise HTTPException(status_code=503, detail={"error": {"code": "RETRIEVAL_UNAVAILABLE", "message": "App resources not loaded."}})
+        raise HTTPException(status_code=503, detail=_error_body("RETRIEVAL_UNAVAILABLE", "RESOURCES_NOT_LOADED"))
     return _resources
+
+
+# NFR-3.5 — errors MUST NOT leak prompts, stack traces, or internal paths.
+# Client-facing text is a fixed string chosen per error code; the exception's
+# own detail goes to the log, correlated by request_id. Previously every
+# handler put str(e) straight into the response body, which for a provider
+# error can include the request URL, model name, and fragments of the prompt.
+_CLIENT_SAFE_MESSAGES = {
+    "RATE_LIMITED": (
+        "The clinical service is temporarily rate limited. Please retry shortly."
+    ),
+    "LLM_UNAVAILABLE": (
+        "The language service is currently unreachable, so no answer can be generated. "
+        "Retrieval is unaffected — please retry shortly."
+    ),
+    "RETRIEVAL_UNAVAILABLE": (
+        "The evidence index is currently unavailable. No answer can be generated without it."
+    ),
+    "INTERNAL_ERROR": (
+        "The assessment could not be completed due to an internal error. "
+        "Quote the request_id below if you report this."
+    ),
+    "CHUNK_NOT_FOUND": "No evidence record exists for that identifier.",
+}
+
+
+def _error_body(code: str, reason: str, error: Exception | None = None,
+                stage: str | None = None) -> dict:
+    """Build the SPEC.md §F.6 error envelope, log the real cause, and
+    return only client-safe text.
+
+    `reason` is a short, non-sensitive classifier that IS safe to return —
+    it tells a caller what kind of failure occurred without exposing how
+    the system is built.
+    """
+    request_id = get_request_id() or str(uuid.uuid4())
+    if error is not None:
+        # exc_info records the traceback on the LOG side only (FR-7.6).
+        app_logger.error(
+            "request failed",
+            exc_info=error,
+            extra={"request_id": request_id, "error_code": code,
+                   "reason": reason, "stage": stage},
+        )
+    body = {
+        "error": {
+            "code": code,
+            "message": _CLIENT_SAFE_MESSAGES.get(code, "The request could not be completed."),
+            "request_id": request_id,
+            "reason": reason,
+        }
+    }
+    if stage:
+        body["error"]["stage"] = stage
+    return body
 
 
 def _refusal_message_with_escalation(result) -> str:
@@ -303,6 +401,16 @@ def _build_trace_out(result) -> TraceOut | None:
 def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
     res = _resources_or_503()
 
+    # NFR-4.1/4.2 — the patient's message is never logged, only its length.
+    # A log line is durable storage, and this is health data.
+    app_logger.info(
+        "query received",
+        # NOT "message": that is a reserved LogRecord attribute and passing
+        # it via extra= raises KeyError inside logging itself.
+        extra={"patient_message": redact(request.message),
+               "include_trace": request.options.include_trace},
+    )
+
     try:
         result = run_query(
             res.qdrant_client, None, res.embedding_provider, res.bm25_index,
@@ -320,7 +428,7 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
         headers = {"Retry-After": _extract_retry_after_seconds(e)}
         raise HTTPException(
             status_code=429,
-            detail={"error": {"code": "RATE_LIMITED", "message": str(e), "request_id": str(uuid.uuid4())}},
+            detail=_error_body("RATE_LIMITED", "UPSTREAM_LLM_RATE_LIMIT", e, stage="generation"),
             headers={k: v for k, v in headers.items() if v is not None} or None,
         ) from e
     except (openai.APIConnectionError, openai.APITimeoutError, anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
@@ -332,13 +440,25 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
         # no evidence is the honest version of that contract today.
         raise HTTPException(
             status_code=503,
-            detail={"error": {"code": "LLM_UNAVAILABLE", "message": str(e), "request_id": str(uuid.uuid4())}},
+            detail=_error_body("LLM_UNAVAILABLE", "UPSTREAM_LLM_UNREACHABLE", e, stage="generation"),
+        ) from e
+    except QdrantException as e:
+        # SPEC.md §F.6: a vector-store outage is 503 RETRIEVAL_UNAVAILABLE,
+        # explicitly "no ungrounded fallback" — the system must never answer
+        # from the model's own medical knowledge when retrieval is down.
+        # Previously this fell into the generic 500, which told the client
+        # "internal error" for what is really a dependency being unreachable
+        # (found live: Docker stopped, every query returned an opaque 500).
+        raise HTTPException(
+            status_code=503,
+            detail=_error_body("RETRIEVAL_UNAVAILABLE", "VECTOR_STORE_UNREACHABLE", e,
+                               stage="retrieval"),
         ) from e
     except Exception as e:  # noqa: BLE001 — any other unexpected pipeline
         # failure becomes a 500, never a silently-wrong 200 (SPEC.md §F.6).
         raise HTTPException(
             status_code=500,
-            detail={"error": {"code": "INTERNAL_ERROR", "message": str(e), "request_id": str(uuid.uuid4())}},
+            detail=_error_body("INTERNAL_ERROR", "UNEXPECTED", e, stage="pipeline"),
         ) from e
 
     evidence_out, cited_chunk_ids = _build_evidence_out(result, res.chunk_store)
@@ -422,7 +542,7 @@ def get_evidence(chunk_id: str) -> EvidenceDetailOut:
     res = _resources_or_503()
     record = res.chunk_store.get(chunk_id)
     if record is None:
-        raise HTTPException(status_code=404, detail={"error": {"code": "CHUNK_NOT_FOUND", "message": f"No chunk with id {chunk_id!r}."}})
+        raise HTTPException(status_code=404, detail=_error_body("CHUNK_NOT_FOUND", "UNKNOWN_CHUNK_ID"))
     return EvidenceDetailOut(
         chunk_id=record.chunk_id,
         document_id=record.document_id,
@@ -453,7 +573,7 @@ def get_evidence(chunk_id: str) -> EvidenceDetailOut:
 @app.get("/api/health", response_model=HealthResponse)
 def get_health() -> HealthResponse:
     if _resources is None:
-        raise HTTPException(status_code=503, detail={"error": {"code": "RETRIEVAL_UNAVAILABLE", "message": "App resources not loaded."}})
+        raise HTTPException(status_code=503, detail=_error_body("RETRIEVAL_UNAVAILABLE", "RESOURCES_NOT_LOADED"))
 
     try:
         count = _resources.qdrant_client.count(collection_name(None)).count

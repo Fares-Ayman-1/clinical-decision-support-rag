@@ -1065,6 +1065,59 @@ Scope Approval gate needs real provenance).
 **Open question Q9 is now 6/7 resolved**, with the remaining item narrowed from "find 7 URLs" to
 "confirm which of two known IRIS handles is Volume 2".
 
+**API hardening — NFR-3.3/3.4/3.5, NFR-7.1, FR-7.6 (this session):**
+
+Scope was set by reading SPEC.md rather than assumed: **NFR-3.7 marks auth/RBAC as `PROD`** and
+§F states "No auth in MVP", so auth is deliberately out of scope, not an oversight. Input length was
+already capped (NFR-3.2 ✓). Four real gaps remained.
+
+- **`backend/app/observability/`** (was an empty `__init__.py`) now holds `logging.py` and
+  `middleware.py`. Structured JSON to stdout with `request_id` on every line (NFR-7.1), and **two
+  genuinely separate streams**: `app` (operational) and `metrics`, the latter with a
+  `NoFreeTextFilter` that truncates any string over 64 chars — SAF-10.3 enforced by a filter rather
+  than trusted to call sites.
+- **`request_id` is carried in a ContextVar**, not threaded through every signature: the call sites
+  span retrieval, generation, and safety modules that have no reason to accept a logging parameter.
+  Echoed as `X-Request-ID`, and an inbound one is honoured so a proxy or the frontend can correlate.
+- **Rate limiting (NFR-3.3)** — sliding window, hand-rolled (~40 lines) rather than adding
+  `slowapi`, consistent with A13 and a deliberately pinned `requirements.txt`. Applied to
+  `/api/query` only: it costs 4+ LLM calls, while `/api/health` and `/api/evidence` are cheap reads
+  that monitoring must never see throttled. Its real limitations are in the class docstring, not
+  hidden: in-process (N workers = N × limit), and keyed on client IP because no auth exists to key on.
+- **CORS from `FRONTEND_ORIGIN` (NFR-3.4)**, comma-separated, deliberately never defaulting to `*` —
+  a wildcard would let any page on the internet post a patient's symptoms to this backend.
+- **NFR-3.5 — errors no longer leak internals.** Every handler previously put `str(e)` straight into
+  the response body; for a provider error that can include the request URL, model name, and prompt
+  fragments. Now `_error_body()` returns fixed client-safe copy plus a safe `reason` classifier,
+  while the full traceback goes to the log correlated by `request_id`. The 404 also stopped
+  reflecting the requested `chunk_id` back (user-controlled input in an error message).
+
+**Two real bugs found by testing live rather than trusting the unit tests:**
+
+1. **Every `/api/query` returned 500.** `extra={"message": ...}` collides with a reserved
+   `LogRecord` attribute, and `logging` raises `KeyError("Attempt to overwrite 'message'")` from
+   *inside* the logging call — so a telemetry line took down the request it was only observing.
+   Fixed twice over: renamed the field, and added a `_SafeExtraLogger` that renames any reserved
+   `extra=` key to `x_<name>` so this class of mistake can never do it again. The unit tests missed
+   it because they never exercised that call site — only a live request did.
+2. **A Qdrant outage reported `500 INTERNAL_ERROR`.** SPEC.md §F.6 says a vector-store outage is
+   `503 RETRIEVAL_UNAVAILABLE` with "no ungrounded fallback". Found because Docker happened to be
+   stopped — a genuine dependency failure was being described to clients as an internal bug. Now
+   caught via `qdrant_client`'s `ApiException` base (covers both connection refusal and error
+   responses) and mapped correctly.
+
+**Verified against the running server, not just in tests** (Qdrant deliberately left down for the
+outage case): `503 RETRIEVAL_UNAVAILABLE` with `stage: retrieval` and **no `WinError`, no file
+paths, no traceback in the body** — while **8,208 chars of traceback reached the log** under the
+same `request_id` the client got. Rate limiter cut in exactly at request 4 of 5 with limit=3.
+Metrics stream carried scalars only. **Zero occurrences of patient text in any log line**; the
+redacted form records length alone (`"<redacted: 4 chars>"`).
+
+**137 backend tests** (24 new), 36 frontend tests, typecheck — all passing.
+
+**Still `PROD`-deferred, unchanged**: auth/RBAC (NFR-3.7), HTTPS (NFR-3.6, a deployment concern),
+and a shared rate-limit store for multi-worker deployments.
+
 ---
 
 ## 6. Features In Progress
