@@ -86,15 +86,15 @@ ENV RERANKER_MODEL=${RERANKER_MODEL}
 # startup as an unrelated-looking offline error. Reading the same YAML the
 # app reads makes that mismatch impossible.
 COPY config/embedding.yaml /tmp/embedding.yaml
+# snapshot_download fetches files into HF_HOME without LOADING either model:
+# instantiating Qwen (2.4 GB fp32) and bge-reranker-v2-m3 (2.3 GB) in one
+# python process OOMKilled the memory-starved builder. Offline mode at
+# runtime only needs the files present, not a warm load.
 RUN python -c "import os, yaml; \
-from sentence_transformers import CrossEncoder, SentenceTransformer; \
+from huggingface_hub import snapshot_download; \
 cfg = yaml.safe_load(open('/tmp/embedding.yaml', encoding='utf-8'))['primary']; \
-kw = {}; \
-kw.update({'tokenizer_kwargs': {'padding_side': cfg['tokenizer_padding_side']}} if cfg.get('tokenizer_padding_side') else {}); \
-kw.update({'model_kwargs': {'torch_dtype': cfg['torch_dtype']}} if cfg.get('torch_dtype') else {}); \
-print('baking embedding model:', cfg['name']); \
-SentenceTransformer(cfg['name'], **kw); \
-CrossEncoder(os.environ['RERANKER_MODEL']); \
+print('caching', cfg['name']); snapshot_download(cfg['name']); \
+print('caching', os.environ['RERANKER_MODEL']); snapshot_download(os.environ['RERANKER_MODEL']); \
 print('cached under', os.environ['HF_HOME'])"
 
 # --- Application ----------------------------------------------------------
