@@ -39,6 +39,27 @@ and no amount of engineering quality substitutes for them.
 
 ## RAG Quality
 
+- [ ] **bge-reranker-v2-m3 is too slow for CPU serving — it burns 96s and then gives up** — **P0**
+  **Reason:** Measured on the live Railway deployment, one query totalling 124.7s:
+
+      retrieval    10.3s
+      rerank       96.4s   <- 77% of the request, then
+                              "reranker exceeded 3.0s budget" and fell back to RRF
+      generation   10.2s
+
+  bge-reranker-v2-m3 is a 2.2 GB XLM-R cross-encoder. On Railway's CPU it cannot finish
+  within the 3s budget, so every query pays the full cost and then discards the result.
+  **Impact:** p95 was already 39.6s against an 8s target; this makes it far worse while
+  delivering no reranking at all. Note the one upside: because the fallback sets
+  `signal_used: "rrf"`, the mis-scaled reranker thresholds (see the sufficiency-gate P0)
+  are currently bypassed — so fixing the timeout without fixing the thresholds would
+  ACTIVATE that bug.
+  **Options:** (a) run reranking on GPU, as the ZeroGPU Space does; (b) pick a smaller
+  multilingual cross-encoder; (c) raise the budget and accept the latency; (d) serve with
+  `RERANKER_MODEL` empty (explicit NullReranker) and rely on RRF, which is what is
+  effectively happening now — but by accident rather than by choice, and without the
+  honest trace signal that an explicit choice would give.
+
 - [ ] **Recalibrate the sufficiency thresholds for bge-reranker-v2-m3 — THE GATE CURRENTLY FAILS OPEN** — **P0**
   **Reason:** The default reranker changed to `BAAI/bge-reranker-v2-m3`, whose outputs are
   sigmoid-normalised to roughly 0..1. `TAU_HIGH_RERANK` / `TAU_LOW_RERANK` still hold ms-marco's
