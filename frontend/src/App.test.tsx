@@ -543,3 +543,63 @@ describe("theme preference", () => {
     expect(window.localStorage.getItem("clinical-theme")).toBe("light");
   });
 });
+
+describe("chat-style composer", () => {
+  it("sends on Enter, clears the input, and shows the question as a bubble", async () => {
+    const user = userEvent.setup();
+    let receivedMessage = "";
+    mockHealthyApi();
+    server.use(
+      http.post(`${API_ROOT}/api/query`, async ({ request }) => {
+        const body = (await request.json()) as { message: string };
+        receivedMessage = body.message;
+        return HttpResponse.json(getDemoResult("low"));
+      }),
+    );
+    render(<App />);
+    await screen.findByRole("status", { name: "System status: LIVE" });
+
+    const question = screen.getByRole("textbox", { name: "Clinical question" });
+    await user.type(question, "I am more short of breath than usual{Enter}");
+
+    await screen.findByLabelText("LOW risk assessment");
+    expect(receivedMessage).toBe("I am more short of breath than usual");
+    expect(question).toHaveValue("");
+    expect(screen.getByText("I am more short of breath than usual")).toBeInTheDocument();
+  });
+
+  it("inserts a newline on Shift+Enter instead of sending, then sends the multi-line text on Enter", async () => {
+    const user = userEvent.setup();
+    let receivedMessage = "";
+    let queryCalls = 0;
+    mockHealthyApi();
+    server.use(
+      http.post(`${API_ROOT}/api/query`, async ({ request }) => {
+        queryCalls += 1;
+        const body = (await request.json()) as { message: string };
+        receivedMessage = body.message;
+        return HttpResponse.json(getDemoResult("low"));
+      }),
+    );
+    render(<App />);
+    await screen.findByRole("status", { name: "System status: LIVE" });
+
+    const question = screen.getByRole("textbox", { name: "Clinical question" });
+    await user.type(question, "First line{Shift>}{Enter}{/Shift}");
+    expect(queryCalls).toBe(0);
+    expect(question).toHaveValue("First line\n");
+
+    await user.type(question, "Second line{Enter}");
+
+    await screen.findByLabelText("LOW risk assessment");
+    expect(queryCalls).toBe(1);
+    expect(receivedMessage).toBe("First line\nSecond line");
+    expect(question).toHaveValue("");
+
+    // getByText / toHaveTextContent both normalize whitespace (collapsing a
+    // newline to a space), which would hide a regression that dropped the
+    // line break -- read the rendered bubble's textContent directly instead.
+    const bubbleText = document.querySelector(".user-message__text");
+    expect(bubbleText?.textContent).toBe("First line\nSecond line");
+  });
+});

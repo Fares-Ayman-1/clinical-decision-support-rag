@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   TriangleAlert,
+  User,
   Workflow,
 } from "lucide-react";
 
@@ -337,6 +338,18 @@ function ChatEmptyState({ onPrompt }: { onPrompt: (prompt: string) => void }) {
   );
 }
 
+function UserQuestionBubble({ text }: { text: string }) {
+  return (
+    <div className="user-message">
+      <div className="user-message__label">
+        <User size={12} aria-hidden="true" />
+        You
+      </div>
+      <p className="user-message__text">{text}</p>
+    </div>
+  );
+}
+
 interface InspectorActionsProps {
   evidenceCount: number;
   hasResult: boolean;
@@ -371,6 +384,11 @@ export default function App() {
   const [scenarioId, setScenarioId] = useState<DemoScenarioId>("critical");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
   const [message, setMessage] = useState("");
+  // The text a request was actually sent with -- distinct from `message`,
+  // which clears immediately on send (chat-input convention). Holds what the
+  // "You" bubble displays and what a failed request retries with, since
+  // `message` is empty by the time either of those needs it.
+  const [submittedQuestion, setSubmittedQuestion] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<ClinicalApiError | null>(null);
@@ -431,6 +449,7 @@ export default function App() {
     setIsPipelineOpen(false);
     setFullTextByChunk({});
     setValidationMessage("");
+    setSubmittedQuestion(null);
     setMessage(nextMessage);
   }, []);
 
@@ -446,19 +465,7 @@ export default function App() {
     resetAssessment(next?.examplePrompt ?? "");
   }, [resetAssessment]);
 
-  const submitAssessment = useCallback(async () => {
-    const normalized = message.trim();
-    if (!normalized) {
-      setValidationMessage("Enter a clinical question before submitting.");
-      textareaRef.current?.focus();
-      return;
-    }
-    if (normalized.length > 2_000) {
-      setValidationMessage("Clinical questions must be 2,000 characters or fewer.");
-      textareaRef.current?.focus();
-      return;
-    }
-
+  const runAssessment = useCallback(async (text: string) => {
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -470,11 +477,12 @@ export default function App() {
     setIsEvidenceOpen(false);
     setIsPipelineOpen(false);
     setFullTextByChunk({});
+    setSubmittedQuestion(text);
     setIsLoading(true);
 
     try {
       const response = await transport.query(
-        { message: normalized, options: { include_trace: true, stream: false } },
+        { message: text, options: { include_trace: true, stream: false } },
         { signal: controller.signal },
       );
       if (requestController.current !== controller) return;
@@ -497,7 +505,30 @@ export default function App() {
         setIsLoading(false);
       }
     }
-  }, [message, mode, transport]);
+  }, [mode, transport]);
+
+  const submitAssessment = useCallback(async () => {
+    const normalized = message.trim();
+    if (!normalized) {
+      setValidationMessage("Enter a clinical question before submitting.");
+      textareaRef.current?.focus();
+      return;
+    }
+    if (normalized.length > 2_000) {
+      setValidationMessage("Clinical questions must be 2,000 characters or fewer.");
+      textareaRef.current?.focus();
+      return;
+    }
+
+    // Cleared immediately, chat-input style -- the sent text lives on as
+    // `submittedQuestion` (set inside runAssessment) for the bubble and retry.
+    setMessage("");
+    await runAssessment(normalized);
+  }, [message, runAssessment]);
+
+  const retryAssessment = useCallback(() => {
+    if (submittedQuestion) void runAssessment(submittedQuestion);
+  }, [submittedQuestion, runAssessment]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -592,6 +623,7 @@ export default function App() {
 
             <div className="panel-body chat-body">
               {!result && !error && !isLoading ? <ChatEmptyState onPrompt={(prompt) => { setMessage(prompt); textareaRef.current?.focus(); }} /> : null}
+              {submittedQuestion ? <UserQuestionBubble text={submittedQuestion} /> : null}
               {isLoading ? <LoadingState onCancel={cancelAssessment} /> : null}
               {result?.status === "success" ? <SuccessResult result={result} onCitation={openCitation} onAction={setPendingAction} /> : null}
               {result?.status === "refusal" ? <RefusalResult result={result} /> : null}
@@ -600,7 +632,7 @@ export default function App() {
                   error={error}
                   canUseDemo={mode === "api" && DEMO_ENABLED}
                   onUseDemo={() => switchMode("demo")}
-                  onRetry={() => void submitAssessment()}
+                  onRetry={retryAssessment}
                 />
               ) : null}
 
@@ -626,7 +658,17 @@ export default function App() {
                     if (validationMessage) setValidationMessage("");
                   }}
                   onKeyDown={(event) => {
-                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    // Composing an IME candidate (e.g. Chinese/Japanese/Korean
+                    // input) also reports key "Enter" -- that Enter confirms the
+                    // candidate and must not also submit the form. keyCode 229
+                    // is the older cross-browser signal isComposing doesn't
+                    // always cover.
+                    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    // Enter sends; Shift+Enter falls through to the textarea's
+                    // default newline-insertion behavior. ctrlKey/metaKey are
+                    // irrelevant to this condition, so Ctrl+Enter still submits
+                    // too -- nothing extra needed to keep that working.
+                    if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       void submitAssessment();
                     }
@@ -639,7 +681,8 @@ export default function App() {
                 <div className="composer-footer">
                   <div className="composer-meta" id="question-help">
                     <span>{message.length.toLocaleString()} / 2,000</span>
-                    <span>CTRL + ENTER</span>
+                    <span>ENTER TO SEND</span>
+                    <span>SHIFT+ENTER FOR NEW LINE</span>
                     {mode === "demo" ? <strong>SYNTHETIC</strong> : null}
                   </div>
                   <button className="submit-button" type="submit" disabled={isLoading} aria-label="Submit clinical question">
