@@ -71,6 +71,27 @@ describe("createApiTransport", () => {
     });
   });
 
+  it("reports a refused CORS origin as a service problem, not a contract violation", async () => {
+    // Starlette's CORSMiddleware answers a disallowed Origin with a
+    // plain-text 400 before any route runs. JSON.parse fails on it, and the
+    // old code reported INVALID_RESPONSE — pointing whoever is debugging at
+    // response shapes when the real fault is FRONTEND_ORIGIN. Seen against a
+    // healthy deployment that was serving valid 200s to curl the whole time.
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response("Disallowed CORS origin", {
+          status: 400,
+          headers: { "Content-Type": "text/plain" },
+        }),
+    );
+    const transport = createApiTransport("http://localhost:8000", { fetch: fetchMock });
+
+    await expect(transport.query({ message: "valid client-side message" })).rejects.toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      status: 400,
+    });
+  });
+
   it("unwraps FastAPI's `detail` envelope around a structured error", async () => {
     // Verbatim body from the deployed API when Qdrant was unreachable.
     // FastAPI wraps HTTPException(detail={"error": {...}}) in `detail`, so
