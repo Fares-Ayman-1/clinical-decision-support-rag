@@ -31,7 +31,7 @@ WORKDIR /app
 # pinned dependency ships a wheel for cp313, and adding gcc would roughly
 # double the image for nothing.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Dependencies first, as their own layer: requirements.txt changes far less
@@ -94,24 +94,50 @@ USER appuser
 # making cold starts depend on HF being reachable. Runs AFTER `USER appuser`
 # so the files land in an HF_HOME that the runtime user actually owns.
 #
-# The CA secret is mounted here too, and pointed at through SSL_CERT_FILE /
-# REQUESTS_CA_BUNDLE rather than PIP_CERT: huggingface_hub does its own HTTPS
-# via requests/certifi, so the pip-specific variable does not apply and this
-# step fails with "couldn't connect to huggingface.co" on an intercepted
-# network even when pip succeeded moments earlier.
+# The CA secret is mounted here too, but pointing SSL_CERT_FILE at it is NOT
+# enough, for two compounding reasons found by watching this step fail:
 #
-# uid=10001 because the mount defaults to root-owned 0400 and this RUN
-# executes as appuser, which could not otherwise read it.
-RUN --mount=type=secret,id=pip_ca,required=false,uid=10001 \
+#   1. huggingface_hub 1.27 uses httpx, not requests. httpx ignores
+#      REQUESTS_CA_BUNDLE and does not read SSL_CERT_FILE the way requests
+#      does, so those variables have no effect on the download at all.
+#   2. The interceptor's root CA is itself malformed — "Basic Constraints of
+#      CA cert not marked critical". Even handed the cert directly, stock
+#      OpenSSL rejects it. Windows tolerates it, which is why the browser and
+#      pip (via PIP_CERT, a different code path) are happy while this is not.
+#
+# truststore is the fix already used for exactly this defect at runtime in
+# app/llm/provider.py: it validates against the OS trust store rather than a
+# bundled certifi list, and accepts the cert Windows accepts. Here the "OS
+# store" is the container's, so the CA is installed system-wide with
+# update-ca-certificates first (needs root, hence USER root / USER appuser
+# around it), then truststore is injected before sentence_transformers loads.
+#
+# On a normal network the secret is absent, every line below no-ops, and the
+# download proceeds over ordinary TLS — which is what happens on a PaaS.
+USER root
+RUN --mount=type=secret,id=pip_ca,required=false \
     if [ -s /run/secrets/pip_ca ]; then \
-      export SSL_CERT_FILE=/run/secrets/pip_ca \
-             REQUESTS_CA_BUNDLE=/run/secrets/pip_ca \
-             CURL_CA_BUNDLE=/run/secrets/pip_ca; \
-    fi; \
-    python -c "\
-from sentence_transformers import SentenceTransformer, CrossEncoder; \
-SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
-CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+      cp /run/secrets/pip_ca /usr/local/share/ca-certificates/build_proxy.crt \
+      && update-ca-certificates; \
+    fi
+USER appuser
+# truststore.inject_into_ssl() is NOT sufficient here, which is worth stating
+# because it is the obvious thing to reach for and it silently does nothing.
+# It patches ssl.SSLContext, but huggingface_hub >=1.0 downloads via httpx,
+# and httpx constructs its own context that the patch does not reach. Probed
+# in a throwaway container, all against the same malformed CA:
+#
+#   raw socket + truststore ctx ......... OK
+#   httpx + inject_into_ssl() ........... CERTIFICATE_VERIFY_FAILED
+#   httpx + explicit truststore ctx ..... OK   <- only with the CA also in
+#                                                the system store (above)
+#
+# So both halves are load-bearing: update-ca-certificates puts the CA where
+# truststore looks, and set_client_factory hands httpx a context that uses
+# it. set_client_factory is a public huggingface_hub export, not a private
+# hook. Without the secret this whole heredoc is skipped.
+# Already present from `COPY backend/` above; run it in place.
+RUN python backend/scripts/bake_models.py
 
 # Documentation only — the real port is $PORT at runtime (see CMD).
 EXPOSE 8000
