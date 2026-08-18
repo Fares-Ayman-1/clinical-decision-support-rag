@@ -6,6 +6,13 @@ Railway builds the images on its own machines from your GitHub repo, so **you do
 need a working local Docker to deploy**. Local Docker matters only for verifying the
 image yourself and for seeding the index (Step 6).
 
+**The API image is verified.** Built and run locally at 612 MB, on a deliberately
+non-default `PORT=9137` to prove the port binding: `/api/health` returned `status: ok`
+with all five checks green and 7,381 points, both models warm from the baked cache,
+the `PRESCRIBING_REQUEST` refusal path fired correctly, rate limiting cut over to 429
+after exactly 20 requests with `retry-after: 49`, and logs came out as one JSON object
+per line carrying `request_id`.
+
 > **This deploys a demo, not a medical device.** A public URL makes the system
 > reachable by real people, which raises rather than lowers the weight of the three
 > P0 gates in `TODO-PRODUCTION.md` (SaMD regulatory assessment, clinician sign-off on
