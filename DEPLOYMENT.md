@@ -6,8 +6,9 @@ Railway builds the images on its own machines from your GitHub repo, so **you do
 need a working local Docker to deploy**. Local Docker matters only for verifying the
 image yourself and for seeding the index (Step 6).
 
-**The API image is verified.** Built and run locally on a deliberately non-default
-`PORT` to prove the port binding rather than pass by accident on the 8000 default:
+**The API image is verified.** 612 MB, built and run locally on a deliberately
+non-default `PORT` to prove the port binding rather than pass by accident on the
+8000 default:
 `/api/health` returned `status: ok` with all five checks green and 7,381 points, both
 models warm from the baked cache, the `PRESCRIBING_REQUEST` refusal path fired
 correctly, rate limiting cut over to 429 after exactly 20 requests with
