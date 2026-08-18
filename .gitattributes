@@ -1,0 +1,4 @@
+# Shell scripts must reach Linux containers with LF endings: a CRLF shebang
+# fails as env: bash: No such file or directory (HF Space exit 127).
+*.sh text eol=lf
+deploy/hf-space/start.sh text eol=lf
