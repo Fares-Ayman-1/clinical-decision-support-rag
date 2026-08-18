@@ -10,19 +10,19 @@
   "false_refusals": 3,
   "safety_refusals": 1,
   "dose_block_refusals": 3,
-  "citation_valid": 87,
-  "citation_checks": 87,
-  "excerpt_verbatim": 71,
-  "excerpt_checks": 71,
-  "statements_kept": 60,
-  "statements_dropped": 14,
+  "citation_valid": 83,
+  "citation_checks": 83,
+  "excerpt_verbatim": 56,
+  "excerpt_checks": 56,
+  "statements_kept": 62,
+  "statements_dropped": 16,
   "dropped_by_reason": {
-    "quote is not a verbatim substring of the cited evidence": 14
+    "quote is not a verbatim substring of the cited evidence": 16
   },
-  "faithful": 0,
-  "judged": 0,
-  "latency_median_ms": 25978.490400004375,
-  "latency_p95_ms": 41359.873999994306,
+  "faithful": 59,
+  "judged": 62,
+  "latency_median_ms": 14469.725099999778,
+  "latency_p95_ms": 26994.700199999897,
   "reranker": "CrossEncoderReranker",
-  "delay_seconds": 3.0
+  "delay_seconds": 4.0
 }

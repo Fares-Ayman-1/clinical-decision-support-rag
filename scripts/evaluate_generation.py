@@ -37,11 +37,20 @@ Pacing: --delay-seconds sleeps between queries to avoid tripping a burst
 limit in the first place (provider-level retry handles one once hit). The
 delay is excluded from the latency metrics.
 
+Artifacts: a --limit run writes to generation_{split}_limit{N}.jsonl rather
+than the split's own file, so a smoke test cannot overwrite the artifact
+backing a reported figure (this happened). Faithfulness verdicts are stored
+per statement with the judge's reasoning and the evidence it judged
+against — a bare "15/19" cannot be audited, and the reasoning was already
+being computed and thrown away. Judge errors are counted separately from
+unfaithful verdicts: a call that failed is a measurement gap, not evidence
+of a generation defect.
+
 Usage
 -----
-    python scripts/evaluate_generation.py --split dev --delay-seconds 3
+    python scripts/evaluate_generation.py --split dev --delay-seconds 4
     python scripts/evaluate_generation.py --split dev --skip-faithfulness
-    python scripts/evaluate_generation.py --split golden --final
+    python scripts/evaluate_generation.py --split golden --final --delay-seconds 4
 """
 
 from __future__ import annotations
@@ -147,6 +156,8 @@ def main() -> int:
     n_failed = 0
     faithful = 0
     judged = 0
+    judge_errors = 0
+    unfaithful_examples: list[dict] = []
     latencies: list[float] = []
     records = []
 
@@ -222,7 +233,16 @@ def main() -> int:
                 if record and " ".join(excerpt.quote.split()) in " ".join(record.text.split()):
                     excerpt_verbatim += 1
 
-        stmt_faithful = None
+        # Per-statement verdicts, not just a tally. A bare "15/19" names a
+        # problem without locating it: nothing in the artifact says WHICH
+        # statements the judge rejected or why, so the headline number
+        # cannot be audited or acted on. That is the same class of defect
+        # as the collapsed denominator this harness was already fixed for —
+        # a figure that looks like a result but cannot be traced back to
+        # the evidence it came from. The judge already returns `reasoning`;
+        # it was simply being discarded.
+        judge_verdicts: list[dict] = []
+        n_judge_errors = 0
         if not args.skip_faithfulness and resolved and result.pack:
             for idx, stmt in enumerate(resolved.statements):
                 # judge_statement expects the generator-side CitedStatement
@@ -238,9 +258,29 @@ def main() -> int:
                     judged += 1
                     if verdict.supported:
                         faithful += 1
+                    judge_verdicts.append({
+                        "statement_index": idx,
+                        "supported": verdict.supported,
+                        "reasoning": verdict.reasoning,
+                        "statement": stmt.text,
+                        "cited_evidence_ids": [c.evidence_id for c in stmt.citations],
+                        "cited_chunk_ids": [c.chunk_id for c in stmt.citations],
+                    })
+                    if not verdict.supported:
+                        print(f"      UNFAITHFUL stmt {idx + 1}: {verdict.reasoning[:110]}")
                 except Exception as e:  # noqa: BLE001
+                    # A judge failure is NOT an unfaithful statement. Counted
+                    # separately so it can never be read as evidence of a
+                    # generation problem, and so `judged` stays an honest
+                    # denominator.
+                    n_judge_errors += 1
                     print(f"      (judge failed on statement {idx + 1}: {type(e).__name__})")
-            stmt_faithful = True
+                    judge_verdicts.append({
+                        "statement_index": idx,
+                        "supported": None,
+                        "error_type": type(e).__name__,
+                        "statement": stmt.text,
+                    })
 
         status = "REFUSAL" if is_refusal else f"{n_statements} stmt"
         print(f"  [{i}/{len(queries)}] {q['query_id']}: {status}, {n_dropped} dropped")
@@ -258,10 +298,26 @@ def main() -> int:
             "sufficiency": result.sufficiency.state.value if result.sufficiency else None,
             "risk": result.risk.urgency.value if result.risk else None,
             "latency_ms": latencies[-1] if latencies else None,
+            # Empty when --skip-faithfulness; per-statement otherwise, so a
+            # rejected statement can be read back with the judge's reasoning
+            # and the exact evidence it was judged against.
+            "faithfulness": judge_verdicts,
         })
 
+        judge_errors += n_judge_errors
+        for v in judge_verdicts:
+            if v.get("supported") is False:
+                unfaithful_examples.append({"query_id": q["query_id"], **v})
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"generation_{args.split}.jsonl"
+    # A --limit run is a smoke test, not a measurement of the split, so it
+    # writes to its own path. Without this a `--limit 1` sanity check
+    # silently overwrites the artifact backing a reported figure, and the
+    # file gives no hint that it now describes 1 query instead of 25 —
+    # the same provenance ambiguity the completion gate exists to prevent.
+    # (Hit while writing this: a smoke test clobbered the golden run.)
+    suffix = f"_limit{args.limit}" if args.limit else ""
+    out_path = OUT_DIR / f"generation_{args.split}{suffix}.jsonl"
     with out_path.open("w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r) + "\n")
@@ -331,6 +387,17 @@ def main() -> int:
     if judged:
         print(f"  faithfulness (LLM-judge)      : {faithful / judged:.1%} "
               f"({faithful}/{judged}){_target('target >= 90%')}")
+        if judge_errors:
+            # Never folded into the unfaithful count: a judge that failed to
+            # answer is a measurement gap, not a generation defect.
+            print(f"  (judge errors, excluded       : {judge_errors} statements unjudged)")
+        # A small `judged` denominator makes this metric noisy — on the
+        # 10-query golden split a single rejected statement moves it ~5
+        # points. Stated inline so the figure is never read as more precise
+        # than the sample supports.
+        if judged < 30:
+            print(f"  (n={judged} judged statements — one verdict moves this "
+                  f"{1 / judged:.1%}; treat as indicative)")
 
     median_ms = p95_ms = None
     if latencies:
@@ -367,12 +434,21 @@ def main() -> int:
         "dropped_by_reason": dropped_by_reason,
         "faithful": faithful,
         "judged": judged,
+        "judge_errors": judge_errors,
+        # The statements the judge rejected, with its reasoning. Kept in the
+        # summary (not only the per-query JSONL) because this is the one
+        # metric a reader is most likely to want to check by hand.
+        "unfaithful_examples": unfaithful_examples,
         "latency_median_ms": median_ms,
         "latency_p95_ms": p95_ms,
         "reranker": reranker.__class__.__name__,
         "delay_seconds": args.delay_seconds,
+        # Non-null means this run measured a PREFIX of the split, not the
+        # split. Recorded so the artifact says so on its own.
+        "limit": args.limit,
+        "skip_faithfulness": args.skip_faithfulness,
     }
-    summary_path = OUT_DIR / f"generation_{args.split}_summary.json"
+    summary_path = OUT_DIR / f"generation_{args.split}{suffix}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(f"\n  per-query records -> {out_path.relative_to(REPO_ROOT)}")

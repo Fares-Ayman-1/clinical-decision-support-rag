@@ -93,8 +93,12 @@ python scripts/fit_thresholds.py
 # --delay-seconds is required in practice: without pacing, the free-tier
 # provider burst-limits partway through a 25-query split. The harness exits
 # non-zero and marks the run invalid if completion drops below 95%.
-python scripts/evaluate_generation.py --split dev --skip-faithfulness --delay-seconds 3
+python scripts/evaluate_generation.py --split dev --delay-seconds 4
 python scripts/evaluate_generation.py --split out_of_domain --skip-faithfulness --delay-seconds 3
+
+# Held-out reporting run. --final is mandatory: the harness refuses golden
+# without it, so a tuning iteration cannot reach this split by accident.
+python scripts/evaluate_generation.py --split golden --final --delay-seconds 4
 
 # Safety suite
 pytest tests/test_safety.py -v
@@ -303,9 +307,16 @@ that invalidates a rule fails the suite instead of silently degrading it to an u
 |---|---|---|---|
 | `out_of_domain` (n=8) | Correct refusal | **100%** (8/8) | ≥ 90% |
 | `dev` (n=25) | False refusal | **12.0%** (3/25) | ≤ 10% |
+| `golden` (n=10) | False refusal | **10.0%** (1/10) | ≤ 10% |
 
-Both runs completed at **100%** (25/25 and 8/8, zero failures) — see §8.4 for why that is stated
-explicitly rather than assumed.
+All three runs completed at **100%** (25/25, 8/8, 10/10, zero failures) — see §8.5 for why that is
+stated explicitly rather than assumed.
+
+**`golden` meets the false-refusal target where `dev` misses it, and the difference is one query,
+not a real gap.** At n=10 a single refusal is 10 percentage points, so 10.0% and 12.0% are the same
+measurement within the resolution either split can offer. The agreement is worth more than either
+number: golden was never tuned against, so its rate landing beside dev's is evidence the thresholds
+did not overfit — which is the only question golden exists to answer.
 
 **100% correct refusal exceeds what threshold fitting predicted (88%), and the discrepancy is
 explained rather than claimed as a better result.** The query fitting predicted would escape —
@@ -349,20 +360,108 @@ real capability limit; counting them as failures would penalize the system for a
 it was explicitly built to enforce. **12% of this corpus's own clinical questions are unanswerable
 by design** — that is a scope finding, not a bug.
 
-### 8.4 Run integrity
+### 8.4 The `golden` split — held-out reporting run
 
-Both runs above completed at **100%**, and this is stated because an earlier run did not. A previous
+`golden` was reserved as report-only for the whole project and evaluated **once**, at the end, with
+`--final`. It was never used to pick a threshold, a prompt, or a chunking config. This is the run it
+was reserved for.
+
+```bash
+python scripts/evaluate_generation.py --split golden --final --delay-seconds 4
+```
+
+| Metric | `golden` (n=10) | `dev` (n=25) | Target |
+|---|---|---|---|
+| Completion | **100%** (10/10) | 100% (25/25) | — |
+| False refusal | **10.0%** (1/10) | 12.0% (3/25) | ≤ 10% |
+| Citation validity | **100%** (30/30) | 100% (83/83) | 100% |
+| Verbatim excerpt accuracy | **100%** (32/32) | 100% (56/56) | 100% |
+| Statements dropped pre-display | 13.8% (4/29) | 20.5% (16/78) | — |
+| **Faithfulness (LLM-judge)** | **76.0%** (19/25) | see §8.6 | ≥ 90% |
+| Latency median / p95 | 14.0 s / 16.8 s | 14.5 s / 27.0 s | p95 ≤ 8 s |
+
+**Every deterministic metric holds on held-out data.** Citation validity and verbatim accuracy stay
+at 100% on a split that never informed a single tuning decision — consistent with §7's argument that
+these are structural properties (the generator cannot see document metadata, so it cannot fabricate
+it) rather than tuned outcomes.
+
+**The drop rate is lower on golden (13.8% vs 20.5%) and the false-refusal rate is comparable.** With
+n=10 neither difference is meaningful; what matters is the absence of a cliff. A system tuned into
+`dev` would degrade visibly here, and it does not.
+
+### 8.5 Run integrity
+
+All runs above completed at **100%**, and this is stated because an earlier run did not. A previous
 `dev` run reported *"false refusal rate 8.0%"* while **19 of 25 queries had failed** on a rate limit
 — the rate was 2 refusals over a nominal 25 when only 6 had executed, and nothing in the output
 revealed the collapsed denominator.
 
 The harness now prints completion rate **before** any metric, computes every rate over
 `n_evaluated`, declares a run invalid below 95% completion, **suppresses `[target …]` annotations on
-an invalid run** (a target comparison is an implicit claim of validity), and exits non-zero. Both
-runs backing this document carry `"run_invalid": false, "completion_rate": 1.0` in their summary
+an invalid run** (a target comparison is an implicit claim of validity), and exits non-zero. Every
+run backing this document carries `"run_invalid": false, "completion_rate": 1.0` in its summary
 JSON.
 
-### 8.5 HTTP-layer integration tests
+Two further guards were added while producing the runs in §8.4 and §8.6, both prompted by real
+mistakes rather than anticipated:
+
+- **A `--limit` run writes to its own artifact path.** A `--limit 1` smoke test silently overwrote
+  `generation_golden.jsonl`, leaving a file that described 1 query where a reported figure claimed
+  25 — the same provenance ambiguity the completion gate exists to prevent, arriving by a different
+  route. Truncated runs now write `generation_{split}_limit{N}.jsonl`, and the summary records
+  `"limit"` so the artifact describes its own scope.
+- **Faithfulness verdicts are recorded per statement, not as a tally.** The first run reported
+  "15/19" with no record of which four statements failed or why, making the headline number
+  unauditable. The judge already returned its reasoning; it was being discarded. Each verdict now
+  carries the statement, the evidence it was judged against, and the reasoning — which is what made
+  §8.6's diagnosis possible at all. Judge *errors* are counted separately from unfaithful verdicts,
+  so a failed call can never be misread as a generation defect.
+
+### 8.6 Faithfulness — the one metric a program cannot compute
+
+Citation validity and verbatim accuracy (§7) are checked **programmatically**: does the cited id
+resolve, is the quote a real substring. Both pass at 100%. Neither answers the question that
+actually matters — *does the cited evidence support the claim the statement makes?* A quote can be
+verbatim and correctly attributed while the sentence around it overstates what the source says.
+
+That judgment needs a model, so it is the one place a judge is used
+(`backend/app/prompts/faithfulness_judge.py`), and strictly offline — never on the serving path
+(ARCHITECTURE.md §12.1).
+
+| Split | Faithfulness | Judged statements | Target |
+|---|---|---|---|
+| `golden` | **76.0%** | 19/25 | ≥ 90% |
+
+**The target is missed, and the failures are not random.** All six rejected statements on `golden`
+share one shape: the clinical content is correctly grounded in the cited evidence, and then a
+**care-seeking recommendation is appended that the guideline text does not contain**.
+
+| Statement (abridged) | What the judge found |
+|---|---|
+| "A rash that appears rapidly… **should be evaluated by a doctor promptly**" | Evidence says to stop the antibiotic; it never mentions consulting a doctor |
+| "…**may not require immediate medical attention**" | Evidence describes the rash type; it says nothing about urgency |
+| "Overwhelming infections can cause rapid dehydration and shock, **making urgent medical evaluation necessary**" | Dehydration/shock supported; the evaluation recommendation is added |
+| "…increases the risk of serious **internal** injuries" | Evidence says "serious injury", not "internal" |
+
+**This is a prompt defect, not a retrieval one.** The generator's system prompt
+(`04_grounded_generator`) requires every statement to cite evidence and forbids unsupported claims —
+but it never tells the model what to do when a patient asks "should I see a doctor?" and the
+retrieved guideline, written *for clinicians*, simply does not address that. The model bridges the
+gap with clinically sensible advice that no cited source states. Verified by reading the prompt:
+there is no instruction to add care-seeking guidance, so the model is doing it unprompted.
+
+**Two honest caveats on this number.** It is scored by the same model family that produced the
+text — a weaker check than an independent judge — and it moves between runs of an unchanged system
+(78.9% and 76.0% on two `golden` runs). It is strong enough to identify the pattern above, and too
+noisy to quote as a precise rate. Both points are recorded as limitations 12 and 13.
+
+**The fix is known but deliberately not applied.** Adding a rule to route care-seeking advice
+through the Decision Engine's fixed copy (which is config-sourced and already correct per SAF-6.5)
+rather than letting the generator improvise it would address every failure above. Changing the
+generator prompt after measuring golden would invalidate this run as a held-out result, so it is
+recorded as an open defect rather than quietly fixed.
+
+### 8.7 HTTP-layer integration tests
 
 `tests/test_integration_api.py` — **46 tests** driving the real FastAPI app through `TestClient`.
 Qdrant, the embedding model, the cross-encoder, and the LLM are replaced; the middleware chain, the
@@ -444,17 +543,24 @@ Stated plainly, because a technical panel will find them anyway:
 7. **p95 latency exceeds the 8 s budget** by a wide margin.
 8. **Evaluation is throttle-constrained and not freely repeatable.** The free-tier provider
    burst-limits a 25-query split without inter-query pacing; a full `dev` run takes ~13 minutes at
-   `--delay-seconds 3`. This is why faithfulness was skipped (it roughly doubles the call count) and
-   why any re-run must check `completion_rate` before its numbers are used.
+   `--delay-seconds 3`, and roughly twice that with faithfulness enabled (one extra judge call per
+   surviving statement). Any re-run must check `completion_rate` before its numbers are used.
 9. **12% of this corpus's own clinical questions are unanswerable by design** (§8.3) — dosing
    questions retrieve good evidence and are then suppressed by SAF-7.1. A scope finding, not a bug,
    but it bounds what the system can be used for.
 10. **Red-flag rules are not clinician-reviewed** (§8.1).
 11. **Conflict detection (SAF-5.x) does not exist.**
-12. **Faithfulness (LLM-judge) is not yet measured** — the judge prompt and harness support exist
-    (`--skip-faithfulness` was used for the runs here to limit free-tier exposure, per limitation 8).
-13. **`golden` has not been evaluated.** It is deliberately reserved as report-only and was held
-    back rather than spent during iteration; a final reporting run against it is still owed.
+12. **Faithfulness is measured and misses the ≥90% target** (§8.6). The judge rejects roughly one
+    statement in six on `golden`, and the failures share a single cause: the generator appends
+    care-seeking advice ("should be evaluated promptly") that its cited guideline text does not
+    state. The clinical content is grounded; the recommendation attached to it is not. This is the
+    most actionable open defect in the system, and it is a **prompt** defect rather than a
+    retrieval one.
+13. **The faithfulness figure itself is noisy and judge-dependent.** Two `golden` runs of the same
+    unchanged system scored 78.9% (15/19) and 76.0% (19/25) — the generator is non-deterministic,
+    so statement counts move between runs. At n≈25 judged statements one verdict is ~4 points.
+    Treat it as indicative of a pattern, not as a precise rate. It is also scored by the same model
+    family that generated the text, which is a weaker check than an independent judge.
 14. **One document still lacks a resolvable `source_url`.** 5,392 of 7,381 chunks (73%) now carry
     verified links — WHO IRIS handles and DOIs, each derived from an identifier printed inside the
     PDF and confirmed to resolve. `who_dcm` (1,989 chunks) remains an explicit placeholder: two IRIS
@@ -467,18 +573,35 @@ Stated plainly, because a technical panel will find them anyway:
 
 **Strongest results:**
 - 100% citation validity and 100% verbatim accuracy, backed by a structural design that makes
-  fabrication unrepresentable rather than merely detectable, plus adversarial tests.
+  fabrication unrepresentable rather than merely detectable, plus adversarial tests — **and both
+  hold on the held-out `golden` split** (§8.4), which never informed a tuning decision.
 - 100% correct refusal on out-of-domain queries, via two independent layers.
 - A reranker that measurably earns its place (+63% Recall@5 over the no-op it replaced).
 - A safety suite where every test names the requirement it pins, and rule provenance is enforced in
   code rather than documented in prose.
+- **No overfitting cliff.** Golden's false-refusal rate (10.0%) lands beside dev's (12.0%) and its
+  deterministic citation metrics are identical. That agreement is the only question a held-out
+  split can answer, and it answers it favorably.
 
 **Weakest results:**
 - Retrieval recall, on a chunking configuration chosen by availability rather than measurement.
 - Latency, by a wide margin (p95 41.4 s against an 8 s budget).
 - False refusal at 12.0%, over target — downstream of the recall weakness.
 - An 18.9% pre-display statement drop rate from paraphrased quotes.
+- **Faithfulness at 76.0% against a ≥90% target** (§8.6) — the generator appends care-seeking advice
+  its cited sources do not state. The deterministic citation checks pass at 100% precisely because
+  they cannot see this: the citation resolves and the quote is verbatim; it is the sentence built
+  around them that overreaches. This is the clearest evidence in the document that programmatic
+  validation and semantic faithfulness are different properties, and that passing the first is not
+  evidence of the second.
 
 **The single highest-value next measurement** is finishing the chunking comparison (§10.1). Recall,
 the ablation's BM25 row, and the fitted thresholds are all downstream of that choice, and all three
 are currently conditional on a configuration nobody selected on evidence.
+
+**The single highest-value next *fix*** is different from the highest-value next measurement, and
+cheaper: route care-seeking advice through the Decision Engine's config-sourced copy instead of
+letting the generator improvise it (§8.6). Every faithfulness failure observed falls to that one
+change, it touches a prompt rather than the index, and unlike the chunking comparison it does not
+require re-embedding the corpus. It is left undone deliberately — applying it after measuring golden
+would spend the held-out property this document just used.

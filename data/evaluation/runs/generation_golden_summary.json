@@ -1,0 +1,113 @@
+{
+  "split": "golden",
+  "n_total": 10,
+  "n_evaluated": 10,
+  "n_failed": 0,
+  "completion_rate": 1.0,
+  "run_invalid": false,
+  "failures_by_type": {},
+  "answered": 9,
+  "false_refusals": 1,
+  "safety_refusals": 0,
+  "dose_block_refusals": 0,
+  "citation_valid": 30,
+  "citation_checks": 30,
+  "excerpt_verbatim": 32,
+  "excerpt_checks": 32,
+  "statements_kept": 25,
+  "statements_dropped": 4,
+  "dropped_by_reason": {
+    "quote is not a verbatim substring of the cited evidence": 4
+  },
+  "faithful": 19,
+  "judged": 25,
+  "judge_errors": 0,
+  "unfaithful_examples": [
+    {
+      "query_id": "gold001",
+      "statement_index": 0,
+      "supported": false,
+      "reasoning": "The cited evidence discusses advising a patient to stop an antibiotic when a rash appears rapidly, is raised and itchy, and/or accompanied by shortness of breath. It does not explicitly state that such a rash should be evaluated by a doctor promptly. Therefore the claim that a doctor should be consulted promptly is not directly supported by the evidence.",
+      "statement": "A rash that appears rapidly, is raised and itchy, and is accompanied by symptoms such as shortness of breath should be evaluated by a doctor promptly.",
+      "cited_evidence_ids": [
+        "E1"
+      ],
+      "cited_chunk_ids": [
+        "who_aware_S1_p40_s33_c5"
+      ]
+    },
+    {
+      "query_id": "gold001",
+      "statement_index": 1,
+      "supported": false,
+      "reasoning": "The cited evidence describes mild drug reactions as itchy papular or maculopapular rashes without constitutional symptoms or systemic findings, but it does not mention whether such rashes require immediate medical attention or not. The statement adds a claim about the necessity (or lack thereof) of immediate medical attention that is not supported by the evidence provided.",
+      "statement": "If a rash is mild, itchy papular or maculopapular, and there are no constitutional symptoms or systemic findings, it may not require immediate medical attention.",
+      "cited_evidence_ids": [
+        "E5"
+      ],
+      "cited_chunk_ids": [
+        "who_dcm_S1_p26_s7_c6"
+      ]
+    },
+    {
+      "query_id": "gold004",
+      "statement_index": 2,
+      "supported": false,
+      "reasoning": "The cited evidence states that most cases can be managed with oral antibiotics in adults who have no signs of severe disease, but it does not mention systemic antibiotics or specify that they are required only when a systemic infection is present. The statement adds a claim about systemic antibiotics that is not supported by the evidence provided.",
+      "statement": "Mild infections can be managed with oral antibiotics in adults, but systemic antibiotics are only needed if there is a systemic infection.",
+      "cited_evidence_ids": [
+        "E3"
+      ],
+      "cited_chunk_ids": [
+        "who_aware_S1_p129_s35_c3"
+      ]
+    },
+    {
+      "query_id": "gold005",
+      "statement_index": 0,
+      "supported": false,
+      "reasoning": "The cited evidence discusses high force, seatbelt status, being thrown or trapped, and the general risk of serious injury, but it does not specifically mention internal injuries. The statement adds the claim that these factors increase the risk of serious internal injuries, which is not directly supported by the evidence provided. Therefore the statement is not faithfully supported.",
+      "statement": "Car accident injuries often involve high force, seatbelt status, and the possibility of being thrown or trapped, which increases the risk of serious internal injuries.",
+      "cited_evidence_ids": [
+        "E3",
+        "E5"
+      ],
+      "cited_chunk_ids": [
+        "who_bec_S1_p58_s25_c3",
+        "who_bec_S1_p58_s25_c2"
+      ]
+    },
+    {
+      "query_id": "gold007",
+      "statement_index": 0,
+      "supported": false,
+      "reasoning": "The cited evidence states that severe cases of diarrhoea can require hospitalization and intravenous treatment, but it does not mention weakness as a symptom. The statement adds the claim that severe diarrhoea accompanied by weakness can represent a severe infection requiring such treatment. Because the evidence does not support the inclusion of weakness, the statement overstates the evidence and is therefore not faithfully supported.",
+      "statement": "Severe diarrhea accompanied by weakness can represent a severe infection that may require hospitalization and intravenous treatment.",
+      "cited_evidence_ids": [
+        "E1"
+      ],
+      "cited_chunk_ids": [
+        "who_aware_S1_p496_s32_c4"
+      ]
+    },
+    {
+      "query_id": "gold007",
+      "statement_index": 2,
+      "supported": false,
+      "reasoning": "The cited evidence states that fever can cause rapid dehydration and that overwhelming infection can worsen shock by dilating blood vessels, which supports the claim that overwhelming infections can cause rapid dehydration and shock. However, the evidence does not mention or imply that urgent medical evaluation is necessary. The statement adds this implication, which is not supported by the evidence. Therefore the statement is not faithfully supported.",
+      "statement": "Overwhelming infections can cause rapid dehydration and shock, making urgent medical evaluation necessary.",
+      "cited_evidence_ids": [
+        "E2"
+      ],
+      "cited_chunk_ids": [
+        "who_bec_S1_p119_s62_c4"
+      ]
+    }
+  ],
+  "latency_median_ms": 13988.592700000481,
+  "latency_p95_ms": 16832.565099999556,
+  "reranker": "CrossEncoderReranker",
+  "delay_seconds": 4.0,
+  "limit": null,
+  "skip_faithfulness": false
+}
