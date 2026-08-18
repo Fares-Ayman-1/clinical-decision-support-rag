@@ -581,6 +581,26 @@ def get_health() -> HealthResponse:
     except Exception:  # noqa: BLE001
         qdrant_check = QdrantCheck(ok=False, points=0)
 
+    # Only `qdrant` and `chunk_store` are measured. The other three report a
+    # constant True, which is a weaker claim than the response shape suggests:
+    #
+    #   embedding_model / reranker  loaded at startup and startup would have
+    #                               failed otherwise, so True is *usually*
+    #                               right — but _load_reranker() deliberately
+    #                               DEGRADES to NullReranker rather than
+    #                               failing, so `reranker.ok: true` can mean
+    #                               "no reranking is happening".
+    #   llm                         never probed at all. Observed reporting
+    #                               ok:true while every completion failed with
+    #                               Connection refused (a container started
+    #                               without OLLAMA_API_KEY, falling back to
+    #                               localhost:11434). The deploy looks green
+    #                               and the first real query 500s.
+    #
+    # These feed `all_ok` below, so they can only ever inflate the verdict,
+    # never lower it. Making them real checks is tracked in
+    # TODO-PRODUCTION.md; the llm one needs a cheap liveness call rather than
+    # a full completion, so it is a design question, not a one-liner.
     checks = HealthChecks(
         qdrant=qdrant_check,
         chunk_store=ChunkStoreCheck(ok=len(_resources.chunk_store) > 0, chunks=len(_resources.chunk_store)),

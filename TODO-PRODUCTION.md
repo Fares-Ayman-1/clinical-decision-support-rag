@@ -228,6 +228,20 @@ and no amount of engineering quality substitutes for them.
 
 ## Observability
 
+- [ ] **Make `/api/health` actually check the LLM and the reranker** — **P1**
+  **Reason:** Three of the five checks are hardcoded `True` (`embedding_model`, `reranker`,
+  `llm`). `llm` is never probed: a container started without `OLLAMA_API_KEY` reported
+  `llm: {"ok": true}` and `status: "ok"` while every completion failed with
+  `Connection refused`, and the first real query returned 500. `reranker.ok` is similarly
+  unconditional even though `_load_reranker()` deliberately degrades to `NullReranker`, so it
+  reads `true` when no reranking is happening at all.
+  **Impact:** A misconfigured deployment goes green and only fails when a patient asks
+  something. On a platform that gates rollout on the health endpoint, a broken deploy is
+  promoted rather than held back.
+  **Fix:** A cheap liveness probe for the provider (not a full completion — that costs money
+  and latency on every check), and report the reranker's real class rather than a constant.
+
+
 - [ ] **Add distributed tracing (OpenTelemetry)** — **P1**
 - [ ] **Add error aggregation (Sentry) with PII scrubbing** — **P1**
   **Dependencies:** PII redaction.
