@@ -19,8 +19,17 @@ evidence-grounded retrieval; never for real patient care.
 
 from __future__ import annotations
 
-import json
 import os
+
+# Before ANY torch import (sentence_transformers pulls it in): the default
+# caching allocator NVML-asserts inside ZeroGPU's MIG slice
+# (c10/cuda/CUDACachingAllocator.cpp:1165) on the first dynamic allocation —
+# reproduced on both unpinned torch and allow-listed 2.11.0, so it is the
+# allocator/MIG interaction, not the torch version. cudaMallocAsync delegates
+# to the CUDA driver and skips that NVML path entirely.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "backend:cudaMallocAsync")
+
+import json
 import pathlib
 import re
 import threading
@@ -93,6 +102,49 @@ MODEL.to("cuda")  # virtualized by `spaces` — see comment above
 
 VECTORS: np.ndarray | None = None
 _INDEX_LOCK = threading.Lock()
+
+# GPU-failure fallback. The main process cannot run the packed (virtual-cuda)
+# MODEL on CPU, so the fallback is a second, plain-CPU instance, loaded only
+# if a GPU call actually fails. Slow for the one-time corpus embed, but a
+# working app on CPU beats a crashed one on GPU — and single-query embeds are
+# sub-second on CPU anyway.
+_CPU_MODEL = None
+_CPU_LOCK = threading.Lock()
+
+
+def _cpu_model() -> SentenceTransformer:
+    global _CPU_MODEL
+    with _CPU_LOCK:
+        if _CPU_MODEL is None:
+            print("loading CPU fallback model…", flush=True)
+            _CPU_MODEL = SentenceTransformer(EMB_MODEL, device="cpu", **{_pad_kw: {"padding_side": "left"}})
+            _CPU_MODEL.max_seq_length = 32768
+        return _CPU_MODEL
+
+
+def _embed_corpus_any() -> np.ndarray:
+    try:
+        return _gpu_embed_corpus()
+    except Exception as exc:
+        print(f"GPU corpus embed failed ({type(exc).__name__}: {exc}) - falling back to CPU", flush=True)
+        model = _cpu_model()
+        out = []
+        for i in range(0, len(TEXTS), 32):
+            out.append(model.encode(TEXTS[i : i + 32], batch_size=32, convert_to_numpy=True,
+                                    normalize_embeddings=True, show_progress_bar=False))
+            if i % 640 == 0:
+                print(f"CPU embed progress: {i}/{len(TEXTS)}", flush=True)
+        return np.vstack(out).astype(np.float32)
+
+
+def _embed_query_any(q: str) -> np.ndarray:
+    try:
+        return _gpu_embed_query(q)
+    except Exception as exc:
+        print(f"GPU query embed failed ({type(exc).__name__}) - CPU fallback", flush=True)
+        vec = _cpu_model().encode([f"{QUERY_PREFIX}{q}"], convert_to_numpy=True,
+                                  normalize_embeddings=True, show_progress_bar=False)
+        return vec[0].astype(np.float32)
 
 
 def _try_load_cached_vectors() -> np.ndarray | None:
@@ -197,7 +249,7 @@ def _ensure_index(progress=gr.Progress()) -> str:
             VECTORS = cached
             return "ready (restored from cache)"
         progress(0.1, desc="Embedding corpus on GPU (~1 min, first launch only)")
-        vecs = _gpu_embed_corpus()
+        vecs = _embed_corpus_any()
         VECTORS = vecs
         _publish_vectors(vecs)
         return "ready (built on GPU and published)"
@@ -205,7 +257,7 @@ def _ensure_index(progress=gr.Progress()) -> str:
 
 # --- Retrieval ---------------------------------------------------------------
 def _search(query: str) -> list[tuple[dict, dict]]:
-    qvec = _gpu_embed_query(query)
+    qvec = _embed_query_any(query)
     dense_scores = VECTORS @ qvec  # exact cosine (both sides L2-normalized)
     dense_top = np.argsort(-dense_scores)[:DENSE_K]
     bm25_scores = BM25.get_scores(_tokenize(query))
