@@ -143,8 +143,7 @@ correctly, rate limiting cut over to 429 after exactly 20 requests with
    | `LLM_PROVIDER` | `ollama` |
    | `LLM_MODEL` | `gpt-oss:20b` |
    | `OLLAMA_API_KEY` | your Ollama Cloud key |
-   | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` |
-   | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+   | `RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` |
    | `FRONTEND_ORIGIN` | the `web` URL - fill in after Step 3 |
    | `RATE_LIMIT_REQUESTS` | `20` |
    | `RATE_LIMIT_WINDOW_SECONDS` | `60` |
@@ -159,12 +158,19 @@ correctly, rate limiting cut over to 429 after exactly 20 requests with
      --set LLM_PROVIDER=ollama \
      --set LLM_MODEL=gpt-oss:20b \
      --set OLLAMA_API_KEY=your-ollama-key \
-     --set EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
-     --set RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 \
+     --set RERANKER_MODEL=BAAI/bge-reranker-v2-m3 \
      --set RATE_LIMIT_REQUESTS=20 \
      --set RATE_LIMIT_WINDOW_SECONDS=60 \
      --set LOG_LEVEL=INFO
    ```
+
+   **There is deliberately no `EMBEDDING_MODEL` variable.** The embedding model is
+   selected in `config/embedding.yaml` and nowhere else - no code reads such a
+   variable, and `backend/scripts/bake_models.py` reads that same file, so the image
+   and the app cannot disagree. Setting one here would have no effect while implying a
+   control that does not exist. Change the model by editing the YAML and redeploying,
+   which also re-bakes the weights. (`RERANKER_MODEL` above *is* read from the
+   environment, by `_load_reranker()`.)
 
    **Do not set `PORT`** - Railway injects it, and the container reads it.
 
@@ -244,35 +250,62 @@ That is expected until Step 6.
 ## Step 6 - Seed the vector index
 
 A fresh volume has no vectors, and `/api/query` returns `503 RETRIEVAL_UNAVAILABLE`
-until it does. Seeding runs from your machine: it re-embeds 7,381 chunks locally
-(a few minutes on CPU) and upserts them.
+until it does.
+
+**Restore the published snapshot rather than re-embedding.** Under the current model
+(`Qwen/Qwen3-Embedding-0.6B`, 1024-dim) embedding 7,381 chunks takes **30-90 minutes on
+2 vCPU** - during which every query 503s. The snapshot is a ~1 minute download and
+restore. It is public and ungated, so no HF token is involved.
 
 1. **`qdrant` -> Settings -> Networking -> TCP Proxy**, proxy port `6333`.
    Railway gives you a host and port, e.g. `roundhouse.proxy.rlwy.net:41234`.
 
-2. Seed from the repo root:
+2. Download the snapshot (75 MB):
 
    ```bash
-   QDRANT_URL=http://roundhouse.proxy.rlwy.net:41234 \
-   QDRANT_API_KEY=your-key \
-   python scripts/build_mvp_index.py --source-config S1 --recreate
+   curl -L -o qwen3.snapshot      https://huggingface.co/datasets/FatimahEmadEldin/cds-qdrant-snapshots/resolve/main/medical_chunks-qwen3-embed-0.6b-1.snapshot
    ```
 
-   The script prints its target and whether a key is in use, so you can confirm you
-   are not overwriting your local index by mistake.
+   The filename is keyed by `embedding_version` from `config/embedding.yaml`, so a
+   model swap can never restore a stale vector space - the version string changes and
+   the filename simply misses.
 
-3. Verify 7,381 points:
+3. **If a collection already exists, delete it first.** Qdrant refuses to overwrite a
+   collection whose dimension differs from the snapshot, with
+   `"Snapshot is not compatible with existing collection"`. That refusal is a
+   safeguard, not a bug - it is what stops a 1024-dim index landing on top of a
+   384-dim one.
 
    ```bash
-   curl -H "api-key: your-key" \
-     http://roundhouse.proxy.rlwy.net:41234/collections/medical_chunks
+   PROXY=http://your-proxy-host:port
+   KEY=your-qdrant-key
+   curl -s -X DELETE "$PROXY/collections/medical_chunks" -H "api-key: $KEY"
    ```
 
-4. **Remove the TCP proxy.** Qdrant should not stay publicly reachable.
+4. Upload:
 
-> Faster alternative if you have a populated local Qdrant: snapshot it via
-> `POST /collections/medical_chunks/snapshots` and restore through the proxy - same
-> exposure window, no re-embedding.
+   ```bash
+   curl -s -X POST "$PROXY/collections/medical_chunks/snapshots/upload?priority=snapshot"      -H "api-key: $KEY" -F "snapshot=@qwen3.snapshot"
+   ```
+
+5. Verify **both** the count and the dimension:
+
+   ```bash
+   curl -s "$PROXY/collections/medical_chunks" -H "api-key: $KEY"
+   ```
+
+   Expect `"points_count": 7381`, `"status": "green"`, and `"size": 1024`. The
+   dimension is the one people forget to check, and a mismatch does not degrade
+   quality - it fails every query outright with
+   `Vector dimension error: expected dim: N, got M`.
+
+6. **Remove the TCP proxy.** Qdrant should not stay publicly reachable.
+
+> **Re-indexing from source instead.** If you ever need to rebuild rather than restore
+> (a corpus change, say), `scripts/build_mvp_index.py --source-config S1 --recreate`
+> still does it, reading `QDRANT_URL` and `QDRANT_API_KEY` from the environment. Budget
+> the 30-90 minutes, and prefer running it against a local Qdrant and publishing a new
+> snapshot over doing it through a public proxy.
 
 ---
 
