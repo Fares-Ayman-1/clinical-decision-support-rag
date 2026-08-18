@@ -11,7 +11,13 @@
 #   pymupdf, pdfplumber   PDF parsing — imported only by
 #                         app/services/ingestion/{text,table}_extraction.py and
 #                         validation.py, which the serving path never imports.
-#   scikit-learn, scipy   Only used by scripts/ for evaluation metrics.
+#   scikit-learn          Not imported by app/, but NOT actually saved: it is a
+#                         hard install_requires of sentence-transformers 5.7.0,
+#                         so pip installs it (and scipy, joblib, threadpoolctl)
+#                         transitively anyway. Listing it here would be
+#                         redundant, not smaller. Removing it for real would
+#                         mean vendoring the handful of ST code paths that
+#                         import it — not worth it for ~160 MB.
 #   aiosqlite             DATABASE_URL/traces.db is declared in .env.example but
 #                         is not read by any code in this repo.
 #   structlog             Superseded by app/observability/logging.py, which uses
