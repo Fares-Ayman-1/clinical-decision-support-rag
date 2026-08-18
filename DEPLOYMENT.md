@@ -21,6 +21,16 @@ per line carrying `request_id`.
 
 ---
 
+> **A note on the UI paths below.** Railway moves controls between releases — the
+> volume control, for one, lives on the project canvas rather than in a service's
+> Settings tab. Menu names here may drift. Where a step matters, the `railway` CLI
+> equivalent is given alongside it; the CLI is far more stable than the console
+> layout. Install it with `npm i -g @railway/cli`, then `railway login` and
+> `railway link` to connect this directory to your project.
+>
+> If a menu path does not match what you see, search the canvas or press
+> `Cmd/Ctrl + K` for the feature name rather than hunting through Settings.
+
 ## Before you start
 
 - A Railway account with the **Hobby plan ($5/mo)**. The API holds torch plus two
@@ -57,7 +67,19 @@ per line carrying `request_id`.
    `qdrant.railway.internal`, and the API would fail every retrieval with no obvious
    cause.
 
-5. **Settings -> Volumes -> Add Volume**, mount path `/qdrant/storage`.
+5. **Attach a volume** at mount path `/qdrant/storage`.
+
+   Volumes are created from the project canvas, not from inside the service's
+   Settings tab. Any of these work:
+
+   - Right-click the `qdrant` service on the canvas -> **Attach Volume**
+   - Press `Cmd/Ctrl + K` and type `volume`
+   - **+ Create** (top right) -> **Volume** -> attach it to `qdrant`
+   - CLI: `railway volume add --mount-path /qdrant/storage --service qdrant`
+
+   Railway has moved this control between releases, so if the wording differs,
+   look for "Volume" on the canvas rather than in Settings.
+
    Without a volume the index is wiped on every redeploy and you would re-run Step 6
    each time.
 6. **Do not generate a public domain.** Qdrant stays private. Step 6 opens a temporary
@@ -95,7 +117,27 @@ per line carrying `request_id`.
    | `RATE_LIMIT_WINDOW_SECONDS` | `60` |
    | `LOG_LEVEL` | `INFO` |
 
+   Or set them all from the CLI, which avoids a lot of clicking:
+
+   ```bash
+   railway variables --service api \
+     --set QDRANT_URL=http://qdrant.railway.internal:6333 \
+     --set QDRANT_API_KEY=your-qdrant-key \
+     --set LLM_PROVIDER=ollama \
+     --set LLM_MODEL=gpt-oss:20b \
+     --set OLLAMA_API_KEY=your-ollama-key \
+     --set EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2 \
+     --set RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 \
+     --set RATE_LIMIT_REQUESTS=20 \
+     --set RATE_LIMIT_WINDOW_SECONDS=60 \
+     --set LOG_LEVEL=INFO
+   ```
+
    **Do not set `PORT`** - Railway injects it, and the container reads it.
+
+   If startup fails with a `RuntimeError` naming `LLM_PROVIDER`/`LLM_MODEL`, one of
+   these is missing. The app checks at boot and refuses to start rather than serving
+   a broken deployment - that error is the check working, not a bug.
 
    **Never set `FRONTEND_ORIGIN` to `*`.** A wildcard lets any page on the internet
    post a patient's symptoms to this backend (NFR-3.4).
