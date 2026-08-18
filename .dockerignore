@@ -1,0 +1,38 @@
+# Shared build-context trimming. Applies to EVERY build using the repo root as
+# context — both backend/Dockerfile (compose's `api`) and the Hugging Face
+# Space Dockerfile, which builds the React bundle and the backend together.
+#
+# Do NOT exclude `frontend` wholesale here: the Space image needs
+# frontend/ sources for its node build stage, and a directory excluded at the
+# context level cannot be recovered by a COPY, even for a single file inside it.
+# Only the generated/vendored subtrees are excluded.
+
+.git
+.gitignore
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.claude
+
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/playwright-report
+frontend/test-results
+
+# Secrets: compose injects .env at RUN time via `env_file`, and the Space uses
+# its own secret store. Either way it must never land in an image layer.
+.env
+.env.*
+!.env.example
+
+# Local dev state. ./data is bind-mounted over the image copy by compose, but
+# the Space image genuinely needs data/chunks + data/chunk_store baked in, so
+# only the throwaway pieces are listed.
+data/traces.db
+data/raw
+*.log

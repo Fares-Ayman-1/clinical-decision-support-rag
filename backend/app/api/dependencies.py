@@ -6,6 +6,7 @@ loads into memory at startup" / "warm the reranker at startup" MVP items.
 
 from __future__ import annotations
 
+import os
 import pathlib
 from dataclasses import dataclass
 
@@ -28,7 +29,12 @@ CHUNK_STORE_PATH = REPO_ROOT / "data" / "chunk_store" / "medical_chunks.jsonl"
 # 5-config chunking-strategy comparison, R13, is still incomplete; S1 is
 # the one config proven end-to-end). Swap once the comparison finishes.
 MVP_SOURCE_CHUNKS_PATH = REPO_ROOT / "data" / "chunks" / "benchmark" / "1.0_S1.jsonl"
-QDRANT_URL = "http://localhost:6333"
+# Read from the environment so a containerized or remote deployment can point
+# at a non-local Qdrant. docker-compose.yml already sets this to
+# http://qdrant:6333 for the `api` service; before this was env-driven that
+# setting was silently ignored and the container looked for Qdrant inside
+# itself. The default keeps single-machine dev behavior unchanged.
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 KB_VERSION = "1.0"
 
 

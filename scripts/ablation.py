@@ -21,6 +21,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import argparse
 import pathlib
 import sys
@@ -53,7 +54,12 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CHUNKS_DIR = REPO_ROOT / "data" / "chunks" / "benchmark"
 CHUNK_STORE_PATH = REPO_ROOT / "data" / "chunk_store" / "medical_chunks.jsonl"
 EVAL_DIR = REPO_ROOT / "data" / "evaluation"
-QDRANT_URL = "http://localhost:6333"
+# Read from the environment so a containerized or remote deployment can point
+# at a non-local Qdrant. docker-compose.yml already sets this to
+# http://qdrant:6333 for the `api` service; before this was env-driven that
+# setting was silently ignored and the container looked for Qdrant inside
+# itself. The default keeps single-machine dev behavior unchanged.
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 K = 5
 # Match the live pipeline's rerank input size rather than picking one here,
 # so the ablation's +rewrite row reranks the same candidate-set width the

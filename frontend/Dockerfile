@@ -12,6 +12,12 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE}
 ENV VITE_EMERGENCY_NUMBER=${VITE_EMERGENCY_NUMBER}
 
+# npm's defaults give up quickly on a flaky link: a local build here died with
+# ECONNRESET after ~10 minutes mid-install while the identical install
+# succeeded on a hosted builder. Retries/timeouts are set via env so the
+# `npm ci` invocation below stays a single cacheable layer.
+ENV NPM_CONFIG_FETCH_RETRIES=5     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=180000     NPM_CONFIG_FETCH_TIMEOUT=600000
+
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   --mount=type=secret,id=npm_ca,required=false \

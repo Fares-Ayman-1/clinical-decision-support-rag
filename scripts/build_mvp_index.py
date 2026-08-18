@@ -14,6 +14,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import argparse
 import pathlib
 import sys
@@ -33,7 +34,12 @@ from app.services.retrieval.qdrant_index import build_index, load_chunks  # noqa
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 BENCHMARK_CHUNKS_DIR = REPO_ROOT / "data" / "chunks" / "benchmark"
 CHUNK_STORE_DIR = REPO_ROOT / "data" / "chunk_store"
-QDRANT_URL = "http://localhost:6333"
+# Read from the environment so a containerized or remote deployment can point
+# at a non-local Qdrant. docker-compose.yml already sets this to
+# http://qdrant:6333 for the `api` service; before this was env-driven that
+# setting was silently ignored and the container looked for Qdrant inside
+# itself. The default keeps single-machine dev behavior unchanged.
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 
 
 def main() -> int:

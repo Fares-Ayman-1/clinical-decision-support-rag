@@ -19,6 +19,7 @@ this is a scope note, not a correctness issue).
 
 from __future__ import annotations
 
+import os
 import json
 import pathlib
 from dataclasses import dataclass
@@ -26,7 +27,12 @@ from dataclasses import dataclass
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
-QDRANT_URL = "http://localhost:6333"
+# Read from the environment so a containerized or remote deployment can point
+# at a non-local Qdrant. docker-compose.yml already sets this to
+# http://qdrant:6333 for the `api` service; before this was env-driven that
+# setting was silently ignored and the container looked for Qdrant inside
+# itself. The default keeps single-machine dev behavior unchanged.
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 MVP_COLLECTION_NAME = "medical_chunks"
 
 
