@@ -72,17 +72,17 @@ export default function Hero({ onStartRecovery, onExploreAI }: HeroProps) {
           <div className={`lg:col-span-7 space-y-8 ${isRtl ? "text-right" : "text-left"}`}>
             <div className="inline-flex items-center gap-2 bg-brand-100/80 text-brand-900 font-bold px-4 py-2 rounded-full text-xs sm:text-sm shadow-xs border border-brand-200/50">
               <Sparkles className="w-4 h-4 text-brand-600 animate-spin" />
-              <span>{t("مستقبل التأهيل الحركي: ذكاء اصطناعي وأخصائيون مرخصون", "Future of Physical Therapy: AI Posture & MOH Chiropractors")}</span>
+              <span>{t("قاعدة معرفة علاجية موثقة + استشارة ومتابعة مع أخصائيك", "An evidence-grounded knowledge base + consultation & follow-up with your therapist")}</span>
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-black text-slate-900 tracking-tight leading-tight">
-              {t("علاجك الطبيعي في", "Your Physical Therapy at")} <span className="text-brand-600 underline decoration-brand-400 decoration-wavy">{t("منزلك", "Home")}</span> {t("بدقة العيادة!", "with Clinic Precision!")}
+              {t("إجابات علاجية", "Physiotherapy answers")} <span className="text-brand-600 underline decoration-brand-400 decoration-wavy">{t("موثّقة المصدر", "backed by evidence")}</span> {t("وأخصائي يتابعك خطوة بخطوة", "and a therapist who follows through")}
             </h1>
 
             <p className="text-base sm:text-lg text-slate-600 max-w-2xl leading-relaxed">
               {t(
-                "افتح الكاميرا ودع محرك رؤية الكمبيوتر من مُعَالِجِي يوجه مفاصلك ويزن زواياك في الوقت الحقيقي. تدرّب بإرشاد مباشر من أخصائيين معتمدين من وزارة الصحة وبسرية وأمان تامين.",
-                "Activate your camera stream and allow MyPhysio's real-time computer vision engine to calibrate your skeletal symmetry, track joint flex, and prevent pain. Exercise securely under direct remote care from certified therapists."
+                "فقراتي منصة علاج طبيعي من مستويين: مساعد ذكي يجيبك بالعربية والإنجليزية والفرنسية من ٩ مراجع معتمدة لمنظمة الصحة العالمية (8,542 مقطع دليل) ويرفض التخمين، وقاعدة معرفة تخصصية (8,043 عقدة) يبني عليها أخصائيك خطتك — مع حجز واستشارة ومتابعة مباشرة، والمصحح الحركي بالكاميرا أداة مساندة أثناء التمارين.",
+                "Faqarati is a two-tier physiotherapy platform: an assistant answering in Arabic, English and French from 9 WHO-approved guidelines (8,542 evidence chunks) that refuses to guess, plus a specialist knowledge graph (8,043 nodes) your therapist plans on — with built-in booking, consultation and follow-up. Camera-based form correction supports you during the exercises."
               )}
             </p>
 
@@ -91,16 +91,16 @@ export default function Hero({ onStartRecovery, onExploreAI }: HeroProps) {
               <div className={`flex items-center gap-2.5 bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm ${isRtl ? "text-right" : "text-left"}`}>
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></div>
                 <div>
-                  <h4 className="text-xs text-slate-400 font-bold">{t("حسابات الزوايا الحركية", "Kinematic Angle Tracking")}</h4>
-                  <p className="text-sm font-semibold text-slate-800">{t("مباشر على المتصفح", "Native browser pipeline")}</p>
+                  <h4 className="text-xs text-slate-400 font-bold">{t("كل إجابة بمصدرها", "Every answer cites its source")}</h4>
+                  <p className="text-sm font-semibold text-slate-800">{t("مرجع وصفحة من WHO", "WHO document, section & page")}</p>
                 </div>
               </div>
 
               <div className={`flex items-center gap-2.5 bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm ${isRtl ? "text-right" : "text-left"}`}>
                 <div className="w-2.5 h-2.5 rounded-full bg-brand-500 flex-shrink-0"></div>
                 <div>
-                  <h4 className="text-xs text-slate-400 font-bold">{t("الخصوصية والأمان", "Privacy & HIPAA Guard")}</h4>
-                  <p className="text-sm font-semibold text-slate-800">{t("تشفير وحماية تامة للأجهزة", "No video saved, zero footprint")}</p>
+                  <h4 className="text-xs text-slate-400 font-bold">{t("استشارة ومتابعة", "Consultation & follow-up")}</h4>
+                  <p className="text-sm font-semibold text-slate-800">{t("بينك وبين أخصائيك مباشرة", "Directly between you and your therapist")}</p>
                 </div>
               </div>
             </div>

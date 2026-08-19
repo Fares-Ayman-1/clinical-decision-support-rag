@@ -79,10 +79,10 @@ export default function Navbar({
               </div>
               <div className={isRtl ? "text-right" : "text-left"}>
                 <span className="block font-display text-xl font-black text-brand-950 tracking-tight leading-none">
-                  {t("مُعَالِجِي", "MyPhysio")}
+                  {t("فقراتي", "Faqarati")}
                 </span>
                 <span className="block text-[10px] font-mono tracking-widest text-brand-600 font-bold leading-normal">
-                  {t("MUALAJI . AI", "MYPHYSIO . AI")}
+                  {t("FAQARATI . AI", "FAQARATI . AI")}
                 </span>
               </div>
             </button>

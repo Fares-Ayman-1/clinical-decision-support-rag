@@ -232,7 +232,7 @@ export default function Sidebar({ role, activePath = "", onNavigate }: SidebarPr
                   {role === "patient" ? t("رعاية حركية ذكية", "Patient Suite") : role === "pt" ? t("عيادة مرخصة", "PT Suite") : t("إدارة المنصة", "Super Admin")}
                 </span>
                 <span className="block font-display text-lg font-black text-slate-900 tracking-tight leading-normal mt-0.5">
-                  {role === "patient" ? t("مُعَالِجِي المباشر", "MyPhysio Core") : role === "pt" ? t("دليل التشخيص", "Clinical Core") : t("لوحة التحكم", "System Admin")}
+                  {role === "patient" ? t("مساعد فقراتي", "Faqarati Core") : role === "pt" ? t("دليل التشخيص", "Clinical Core") : t("لوحة التحكم", "System Admin")}
                 </span>
               </div>
             )}

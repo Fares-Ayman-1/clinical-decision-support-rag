@@ -631,8 +631,8 @@ export default function AIPostureDemo({
               <div className={`mt-3.5 p-3.5 bg-slate-900 rounded-2xl border border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-3 ${isRtl ? "text-right" : "text-left"}`}>
                 <span className="text-[11px] text-slate-400 leading-normal max-w-lg">
                   {t(
-                    "* تستخدم منصة مُعَالِجِي تكنولوجيا متطورة لمراقبة المفاصل عبر الـ Browser والبيانات لا تسجل مطلقاً في أي خوادم سحابية خارجية، علاجك الفيزيائي محصن وخصوصيتك مصونة كلياً.",
-                    "* MyPhysio workspace values dynamic local storage, calculations execute securely within secure sandbox layers of memory without cloud recording."
+                    "* تستخدم منصة فقراتي تكنولوجيا متطورة لمراقبة المفاصل عبر الـ Browser والبيانات لا تسجل مطلقاً في أي خوادم سحابية خارجية، علاجك الفيزيائي محصن وخصوصيتك مصونة كلياً.",
+                    "* Faqarati workspace values dynamic local storage, calculations execute securely within secure sandbox layers of memory without cloud recording."
                   )}
                 </span>
                 

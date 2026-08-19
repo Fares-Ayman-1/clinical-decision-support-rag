@@ -23,17 +23,17 @@ export default function Footer() {
               </div>
               <div>
                 <span className="block font-display text-xl font-black text-brand-400 tracking-tight leading-none">
-                  {t("مُعَالِجِي", "MyPhysio")}
+                  {t("فقراتي", "Faqarati")}
                 </span>
                 <span className="block text-[10px] font-mono tracking-widest text-slate-500 font-bold leading-normal">
-                  {t("MUALAJI . AI", "MYPHYSIO . AI")}
+                  {t("FAQARATI . AI", "FAQARATI . AI")}
                 </span>
               </div>
             </div>
             
             <p className="text-xs text-slate-400 leading-relaxed">
               {t(
-                "منصة طبية ريادية عن بعد لتسهيل ممارسات العلاج الطبيعي والتأهيل الحركي تحت إشراف طبّي مرخص مع دمج ذكاء اصطناعي محلي آمن لحساب دقة المفاصل.",
+                "منصة علاج طبيعي تجمع قاعدة معرفة موثقة من منظمة الصحة العالمية، ومساعدًا ذكيًا ثلاثي اللغات بالصوت والنص، وشبكة معرفية تخصصية للأخصائيين، مع استشارة ومتابعة مباشرة بين المريض ومعالجه.",
                 "Surgical and posture rehabilitation via a certified tele-physiotherapy workspace, blending local client-side computer vision models securely."
               )}
             </p>
@@ -79,7 +79,7 @@ export default function Footer() {
         {/* Bottom medical disclaimer and copyright */}
         <div className={`pt-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-400 ${isRtl ? "text-right" : "text-left"}`}>
           <p className="order-last sm:order-first">
-            {t("© ٢٠٢٦ منصة مُعَالِجِي (MyPhysio). كافة الحقوق محفوظة. تم التطوير كنموذج MVP طبي مبتكر.", "© 2026 MyPhysio (معالجي). All rights reserved. Created as an innovative clinical MVP.")}
+            {t("© ٢٠٢٦ منصة فقراتي (Faqarati). كافة الحقوق محفوظة. تم التطوير كنموذج MVP طبي مبتكر.", "© 2026 Faqarati (فقراتي). All rights reserved. Created as an innovative clinical MVP.")}
           </p>
 
           <div className="flex items-center gap-2.5 bg-slate-900/40 p-2.5 rounded-xl border border-slate-900 max-w-lg">

@@ -12,10 +12,10 @@ export default function HowItWorks() {
   const steps = [
     {
       num: t("١", "1"),
-      title: t("احجز جلستك المرئية بخصوصية", "Book Your Secure Video Session"),
+      title: t("اسأل المساعد الموثق", "Ask the evidence-grounded assistant"),
       description: t(
-        "اختر أخصائي العلاج الطبيعي المرخص والمناسب لاحتياجاتك. احجز موعدك من التقويم التفاعلي بلمسة زر، ونسق اللقاء الأول مع معالجك المعتمد.",
-        "Choose the licensed physical therapist who matches your specific clinical needs. Book a convenient slot on our interactive calendar."
+        "اكتب أو تحدث بصوتك — بالعربية أو الإنجليزية أو الفرنسية. يجيبك المساعد من ٩ مراجع معتمدة لمنظمة الصحة العالمية مع ذكر المصدر والصفحة، ويرفض بأمان عندما لا تكفي الأدلة، ويضع أزرار الطوارئ والمستشفيات القريبة بين يديك.",
+        "Type or speak — in Arabic, English or French. The assistant answers from 9 WHO-approved guidelines citing document and page, refuses safely when evidence is thin, and puts emergency and nearby-hospital actions at your fingertips."
       ),
       icon: Calendar,
       color: "from-blue-500 to-indigo-500",
@@ -23,10 +23,10 @@ export default function HowItWorks() {
     },
     {
       num: t("٢", "2"),
-      title: t("استلم خطتك العلاجية المخصصة", "Receive Your Customized Plan"),
+      title: t("استشر أخصائيك وتابع معه", "Consult your therapist & follow up"),
       description: t(
-        "يقوم طبيبك ببرمجة وبناء مجموعة الحركات العلاجية المناسبة لك (التكرار، الزوايا المستهدفة، مدة الثبات) وتصديرها مباشرة للوحتك الخاصة.",
-        "Your dedicated specialist configures your precise kinetic program (repetitions, target angles, hold-times), exporting it directly to your dashboard."
+        "احجز جلستك وتحدث مع أخصائيك مباشرة. يبني الأخصائي خطتك على قاعدة المعرفة التخصصية (8,043 عقدة تربط كل تمرين بعضلاته المستهدفة) ويصدّرها للوحتك — مع متابعة وتقارير مستمرة بينكما.",
+        "Book a session and talk to your therapist directly. They build your plan on the specialist knowledge graph (8,043 nodes wiring every exercise to its target muscles) and export it to your dashboard — with continuous follow-up and reports between you."
       ),
       icon: ShieldCheck,
       color: "from-brand-500 to-brand-600",
@@ -34,10 +34,10 @@ export default function HowItWorks() {
     },
     {
       num: t("٣", "3"),
-      title: t("تدرّب مع المراقبة الذكية الفورية", "Train with Live AI Correcting"),
+      title: t("نفّذ خطتك بدعم ذكي", "Execute your plan with smart support"),
       description: t(
-        "افتح الكاميرا وابدأ التمارين. يحلل المصحح الذكي حركات المفاصل وزاويا العضلات لتنبيهك فوراً بأي وضعية خاطئة قد تضر بفقراتك، مع احتساب التكرارات آلياً.",
-        "Open your camera and follow your routine. The computer vision engine tracks your posture and corrects mistakes live while counting reps."
+        "نفّذ تمارينك من لوحتك وتابع تقدمك أسبوعاً بأسبوع. والمصحح الحركي بالكاميرا أداة مساندة اختيارية تنبهك للوضعيات الخاطئة وتحسب التكرارات — دون أن يغادر الفيديو جهازك.",
+        "Run your exercises from your dashboard and track progress week by week. The optional camera-based corrector supports you — flagging bad form and counting reps, with video never leaving your device."
       ),
       icon: Eye,
       color: "from-emerald-500 to-teal-500",
@@ -59,12 +59,12 @@ export default function HowItWorks() {
             {t("آلية التعافي", "Recovery Mechanism")}
           </span>
           <h2 className="text-3xl sm:text-4xl font-display font-black text-slate-900">
-            {t("كيف يعمل مُعَالِجِي؟ ⏳", "How does MyPhysio work? ⏳")}
+            {t("كيف تعمل فقراتي؟ ⏳", "How does Faqarati work? ⏳")}
           </h2>
           <p className="text-slate-650 font-medium">
             {t(
-              "٣ خطوات مبسطة تنقلك من الألم إلى الحركة الكاملة وتحت إشراف طبي معتمد من وزارة الصحة.",
-              "3 seamless steps moving you from discomfort to full functional flexibility under certified healthcare guidance."
+              "٣ خطوات: إجابة موثقة فورية، ثم أخصائي يتابعك، ثم خطة تنفذها بدعم ذكي — كل خطوة قابلة للتتبع حتى مصدرها.",
+              "3 steps: an evidence-grounded answer now, a therapist who follows up, and a plan you execute with smart support — every step traceable to its source."
             )}
           </p>
         </div>
@@ -126,8 +126,8 @@ export default function HowItWorks() {
             </h4>
             <p className="text-slate-300 text-sm leading-relaxed">
               {t(
-                "تلتزم منصة مُعَالِجِي بمعايير سلامة البيانات ومراجعات الحركات الطبية. محرك الذكاء الاصطناعي يقوم بحساب الزوايا والوضعية حركياً على جهازك دون إرسال دفقات الفيديو لخادمنا الخارجي للحفاظ المطلق على خصوصيتك.",
-                "MyPhysio adheres to medical grade data protection values. All joint calibration and skeletal measurements happen locally on your client machine with zero video storage on external clouds, ensuring absolute secrecy."
+                "فقراتي نظام معرفي من مستويين: مستوى عام للجمهور يجيب من مراجع منظمة الصحة العالمية ويذكر مصدره دائماً، ومستوى تخصصي للأخصائي مبني على شبكة معرفية من 8,043 عقدة. رسائلك لا تُسجّل نصياً، والمصحح الحركي يعمل على جهازك دون رفع أي فيديو لخوادمنا.",
+                "Faqarati is a two-tier knowledge system: a public tier answering from WHO guidelines that always cites its source, and a specialist tier for clinicians built on an 8,043-node knowledge graph. Your messages are never logged as text, and the motion corrector runs on your device — no video ever reaches our servers."
               )}
             </p>
           </div>
