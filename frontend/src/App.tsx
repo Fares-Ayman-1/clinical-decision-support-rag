@@ -12,6 +12,8 @@ import {
   Info,
   MapPin,
   MessageSquareText,
+  Mic,
+  MicOff,
   PhoneCall,
   RadioTower,
   ShieldAlert,
@@ -384,6 +386,12 @@ export default function App() {
   const [scenarioId, setScenarioId] = useState<DemoScenarioId>("critical");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
   const [message, setMessage] = useState("");
+  // Voice input (Groq whisper-large-v3 via POST /api/transcribe).
+  // "recording" -> MediaRecorder active; "transcribing" -> upload in flight.
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [voiceError, setVoiceError] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   // The text a request was actually sent with -- distinct from `message`,
   // which clears immediately on send (chat-input convention). Holds what the
   // "You" bubble displays and what a failed request retries with, since
@@ -506,6 +514,68 @@ export default function App() {
       }
     }
   }, [mode, transport]);
+
+  const toggleVoiceInput = useCallback(async () => {
+    setVoiceError("");
+    if (voiceState === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    if (voiceState !== "idle") return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setVoiceError("Voice input is not supported in this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : undefined; // Safari records audio/mp4; the backend maps both.
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blobType = recorder.mimeType || "audio/webm";
+        const audio = new Blob(chunksRef.current, { type: blobType });
+        chunksRef.current = [];
+        if (audio.size < 1024) {
+          // A sub-1KB capture is a mis-click, not dictation.
+          setVoiceState("idle");
+          return;
+        }
+        setVoiceState("transcribing");
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+            method: "POST",
+            headers: { "Content-Type": blobType.split(";")[0] },
+            body: audio,
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = (await response.json()) as { text?: string };
+          const text = (payload.text ?? "").trim();
+          if (text) {
+            // Append rather than replace: dictation extends whatever is typed.
+            setMessage((previous) => (previous.trim() ? `${previous.trim()} ${text}` : text));
+            if (validationMessage) setValidationMessage("");
+          }
+        } catch {
+          setVoiceError("Transcription failed — check the API connection and try again.");
+        } finally {
+          setVoiceState("idle");
+          textareaRef.current?.focus();
+        }
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setVoiceState("recording");
+    } catch {
+      setVoiceError("Microphone access was denied.");
+      setVoiceState("idle");
+    }
+  }, [voiceState, validationMessage]);
 
   const submitAssessment = useCallback(async () => {
     const normalized = message.trim();
@@ -685,12 +755,33 @@ export default function App() {
                     <span>SHIFT+ENTER FOR NEW LINE</span>
                     {mode === "demo" ? <strong>SYNTHETIC</strong> : null}
                   </div>
-                  <button className="submit-button" type="submit" disabled={isLoading} aria-label="Submit clinical question">
-                    <ArrowUp size={19} aria-hidden="true" />
-                  </button>
+                  <div className="composer-actions">
+                    <button
+                      className={`submit-button mic-button${voiceState === "recording" ? " recording" : ""}`}
+                      type="button"
+                      onClick={() => void toggleVoiceInput()}
+                      disabled={isLoading || voiceState === "transcribing" || mode === "demo"}
+                      aria-label={voiceState === "recording" ? "Stop recording and transcribe" : "Dictate your question"}
+                      title={
+                        mode === "demo"
+                          ? "Voice input needs the real API connection"
+                          : voiceState === "recording"
+                            ? "Stop recording and transcribe"
+                            : "Dictate your question (Arabic or English)"
+                      }
+                    >
+                      {voiceState === "recording" ? <MicOff size={19} aria-hidden="true" /> : <Mic size={19} aria-hidden="true" />}
+                    </button>
+                    <button className="submit-button" type="submit" disabled={isLoading} aria-label="Submit clinical question">
+                      <ArrowUp size={19} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </div>
-              <p className="validation-message" id="question-error" role="alert">{validationMessage}</p>
+              <p className="validation-message" id="question-error" role="alert">
+                {validationMessage || voiceError}
+                {voiceState === "transcribing" ? "Transcribing…" : ""}
+              </p>
             </form>
           </section>
         </div>

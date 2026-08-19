@@ -1838,3 +1838,35 @@ button {
     transition-duration: .01ms !important;
   }
 }
+
+/* --- Voice input (dictation) ------------------------------------------- */
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mic-button {
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid var(--gold);
+}
+
+.mic-button:hover:not(:disabled) {
+  color: var(--navy-deep);
+  background: var(--gold);
+  transform: translateY(-2px);
+}
+
+.mic-button.recording {
+  color: #fff;
+  border-color: var(--critical);
+  background: var(--critical);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 82, 82, .45); }
+  50% { box-shadow: 0 0 0 9px rgba(224, 82, 82, 0); }
+}

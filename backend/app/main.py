@@ -28,7 +28,7 @@ from typing import Union
 
 import anthropic
 import openai
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Common base of ResponseHandlingException (connection refused/timeout) and
@@ -616,3 +616,71 @@ def get_health() -> HealthResponse:
         status=status, checks=checks,
         versions=HealthVersions(kb=_resources.kb_version, embedding=_resources.embedding_version, prompts="rag-gen-v1"),
     )
+
+
+# --- Voice input: speech-to-text via Groq ----------------------------------
+# POST /api/transcribe accepts a recorded audio blob (webm/opus from the
+# browser's MediaRecorder, or m4a/mp3/wav) and returns the transcript text.
+# Groq's endpoint is OpenAI-compatible, so this uses the already-pinned httpx
+# rather than adding the `groq` SDK as a dependency for one call. The audio
+# leaves this server for Groq — same third-party-processing posture as the
+# LLM calls, and worth the same governance note for patient-voice audio.
+
+GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3")
+GROQ_STT_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+# MediaRecorder produces roughly 100-200 KB per 10 s of opus; 15 MB allows
+# several minutes of dictation while bounding abuse of a public endpoint.
+MAX_AUDIO_BYTES = 15 * 1024 * 1024
+
+
+@app.post("/api/transcribe")
+async def post_transcribe(request: Request):
+    """Body: raw audio bytes (Content-Type audio/*). Query param `language`
+    optionally pins Whisper's language (e.g. `ar`); left unset, Whisper
+    auto-detects — which is what a bilingual Arabic/English UI wants."""
+    api_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "STT_UNCONFIGURED", "reason": "GROQ_API_KEY is not set"},
+        )
+
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(status_code=400, detail={"code": "EMPTY_AUDIO"})
+    if len(audio) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "AUDIO_TOO_LARGE"})
+
+    content_type = request.headers.get("content-type", "audio/webm")
+    # Groq infers the codec from the filename extension in the multipart part.
+    ext = {
+        "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a",
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-m4a": "m4a",
+    }.get(content_type.split(";")[0].strip(), "webm")
+
+    language = request.query_params.get("language", "").strip()
+    data = {"model": GROQ_STT_MODEL, "temperature": "0", "response_format": "json"}
+    if language:
+        data["language"] = language
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                GROQ_STT_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=data,
+                files={"file": (f"audio.{ext}", audio, content_type)},
+            )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail={"code": "STT_UPSTREAM_UNREACHABLE", "reason": type(e).__name__})
+
+    if resp.status_code != 200:
+        # Do not leak the upstream body verbatim (NFR: no error-detail leaks);
+        # log it, return a stable code.
+        app_logger.warning("groq transcription failed", extra={"status": resp.status_code, "body": resp.text[:300]})
+        raise HTTPException(status_code=502, detail={"code": "STT_FAILED", "status": resp.status_code})
+
+    text = (resp.json().get("text") or "").strip()
+    return {"text": text, "model": GROQ_STT_MODEL}
