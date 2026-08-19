@@ -1432,7 +1432,11 @@ How would you like to customize today's movement plan for this patient? Send you
 
       {activeTab === "messages" && <PTMessagesTab />}
 
-      {activeTab === "clinical_assistant" && <PTClinicalAssistantTab />}
+      {activeTab === "clinical_assistant" && (
+        <div className="h-[calc(100vh-230px)] min-h-[560px]">
+          <PTClinicalAssistantTab fullScreen />
+        </div>
+      )}
 
       {activeTab === "wallet" && (
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center space-y-2">

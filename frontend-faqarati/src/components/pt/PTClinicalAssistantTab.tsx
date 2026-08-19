@@ -211,7 +211,12 @@ function CareActions() {
   );
 }
 
-export default function PTClinicalAssistantTab() {
+interface ClinicalAssistantProps {
+  /** Doctor view: fill the available height, conversation flexes, composer pinned. */
+  fullScreen?: boolean;
+}
+
+export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalAssistantProps) {
   const { t, isRtl } = useLanguage();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [draft, setDraft] = useState("");
@@ -385,7 +390,7 @@ export default function PTClinicalAssistantTab() {
   }, [voiceState, t]);
 
   return (
-    <div className="space-y-6">
+    <div className={fullScreen ? "flex flex-col h-full gap-4" : "space-y-6"}>
       {/* Safety banner — this system refuses rather than guesses */}
       <div className="bg-brand-50 border border-brand-200 rounded-2xl p-4 flex items-start gap-3">
         <Stethoscope className="w-5 h-5 text-brand-700 mt-0.5 shrink-0" />
@@ -471,7 +476,7 @@ export default function PTClinicalAssistantTab() {
       </div>
 
       {/* Conversation — scrollable history, pinned to the newest turn */}
-      <div className="space-y-5 max-h-[62vh] overflow-y-auto pe-1">
+      <div className={`space-y-5 overflow-y-auto pe-1 ${fullScreen ? "flex-1 min-h-0" : "max-h-[62vh]"}`}>
         {turns.length === 0 && (
           <div className="text-center py-10 text-slate-400">
             <BookOpenCheck className="w-10 h-10 mx-auto mb-3 text-brand-300" />

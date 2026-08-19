@@ -14,6 +14,7 @@ import DoctorListing from "./components/DoctorListing";
 import Footer from "./components/Footer";
 import AuthModal from "./components/AuthModal";
 import PatientPortal from "./components/PatientPortal";
+import ClinicalAssistant from "./components/pt/PTClinicalAssistantTab";
 import PTPortal from "./components/PTPortal";
 import AdminPortal from "./components/AdminPortal";
 import AppShell from "./components/layout/AppShell";
@@ -24,7 +25,7 @@ import { resolvePatientId } from "./utils/patientId";
 import { resolvePortalRoute, viewToDefaultPath } from "./utils/portalRoutes";
 
 export default function App() {
-  const { isRtl } = useLanguage();
+  const { isRtl, t } = useLanguage();
 
   const [currentView, setView] = useState<string>("landing");
   const [portalActivePath, setPortalActivePath] = useState("/patient/dashboard");
@@ -221,6 +222,29 @@ export default function App() {
         {currentView === "landing" && (
           <div className="space-y-0">
             <Hero onStartRecovery={() => openAuthWithRole("patient")} onExploreAI={() => triggerFocusView("ai-demo")} />
+
+            {/* Ask directly from the landing page — the evidence-grounded WHO
+                RAG assistant (voice, CTAs, citations), no sign-in required. */}
+            <section id="ask-assistant" className="bg-slate-50 border-y border-slate-200 py-14">
+              <div className="max-w-4xl mx-auto px-4 sm:px-6">
+                <div className="text-center mb-8">
+                  <span className="inline-block text-[11px] font-black uppercase tracking-widest text-brand-600 bg-brand-50 border border-brand-200 rounded-full px-3 py-1 mb-3">
+                    {"WHO Evidence-Grounded"}
+                  </span>
+                  <h2 className="font-display font-black text-2xl sm:text-3xl text-slate-800">
+                    {t("اسأل مساعد فقراتي الصحي", "Ask the Faqarati Health Assistant")}
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-2 max-w-xl mx-auto">
+                    {t(
+                      "إجابات موثقة من إرشادات منظمة الصحة العالمية — بالصوت أو الكتابة، بالعربية أو الإنجليزية، مع أزرار مساعدة حقيقية للطوارئ والمستشفيات القريبة.",
+                      "Answers cited from WHO guidelines — by voice or text, Arabic or English, with working emergency and nearby-hospital actions.",
+                    )}
+                  </p>
+                </div>
+                <ClinicalAssistant />
+              </div>
+            </section>
+
             <HowItWorks />
             <InteractivePainMap
               onSelectDoctor={() => triggerFocusView("clinics")}

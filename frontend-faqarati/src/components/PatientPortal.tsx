@@ -7,6 +7,7 @@ import { useState, FormEvent, useEffect } from "react";
 import { mockExercises, mockTherapists } from "../mockData";
 import { Dumbbell, Calendar, MessageSquare, Plus, Activity, Star, CheckCircle, TrendingUp, Heart, Video, Clock, Info, ShieldAlert } from "lucide-react";
 import { useLanguage } from "../LanguageContext";
+import ClinicalAssistant from "./pt/PTClinicalAssistantTab";
 import { Appointment, ExerciseSessionLog, ExerciseSessionContext, Weekday } from "../types";
 
 interface PatientPortalProps {
@@ -109,6 +110,18 @@ export default function PatientPortal({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10" dir={isRtl ? "rtl" : "ltr"}>
       
+      {/* Ask the evidence-grounded assistant — same component as the PT
+          portal and the landing page (voice, CTAs, WHO citations). */}
+      <details className="mb-8 bg-white border border-slate-200 rounded-3xl shadow-sm group" open>
+        <summary className="px-6 py-4 font-display font-black text-slate-700 cursor-pointer select-none flex items-center gap-2">
+          <MessageSquare className="w-5 h-5 text-brand-500" />
+          {t("اسأل المساعد الصحي", "Ask the health assistant")}
+        </summary>
+        <div className="px-6 pb-6">
+          <ClinicalAssistant />
+        </div>
+      </details>
+
       {/* Header welcome */}
       <div className={`bg-slate-900 text-white rounded-3xl p-6 sm:p-8 border border-slate-800 shadow-xl mb-8 flex flex-col md:flex-row justify-between items-center gap-6 ${isRtl ? "text-right" : "text-left"}`}>
         <div className="space-y-2 order-last md:order-first">
