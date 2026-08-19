@@ -411,10 +411,17 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
                "include_trace": request.options.include_trace},
     )
 
+    # Fold the profile into the message so every stage sees it (see
+    # PatientContext.as_preamble for why this is textual rather than a new
+    # parameter threaded through the pipeline).
+    effective_message = request.message + (
+        request.patient_context.as_preamble() if request.patient_context else ""
+    )
+
     try:
         result = run_query(
             res.qdrant_client, None, res.embedding_provider, res.bm25_index,
-            res.chunk_store, res.reranker, res.llm_provider, request.message,
+            res.chunk_store, res.reranker, res.llm_provider, effective_message,
             include_trace=request.options.include_trace,
         )
     except (openai.RateLimitError, anthropic.RateLimitError) as e:

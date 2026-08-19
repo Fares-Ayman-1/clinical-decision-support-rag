@@ -54,6 +54,28 @@ class PatientContext(BaseModel):
     sex: Literal["female", "male", "intersex", "other", "unknown"] | None = None
     known_conditions: list[str] = Field(default_factory=list)
     medications: list[str] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+
+    def as_preamble(self) -> str:
+        """Renders the profile as a bracketed context block appended to the
+        patient's message before the pipeline runs. This field was previously
+        accepted and then consumed by NOTHING — a silent no-op that made the
+        profile page a placebo. Folding it into the message text means every
+        stage that reads the message (red flags, extraction, retrieval
+        rewrites, generation) sees the context without any of them needing a
+        new parameter."""
+        parts: list[str] = []
+        if self.age is not None:
+            parts.append(f"age {self.age}")
+        if self.sex and self.sex != "unknown":
+            parts.append(f"sex {self.sex}")
+        if self.known_conditions:
+            parts.append("known conditions: " + ", ".join(self.known_conditions))
+        if self.medications:
+            parts.append("current medications: " + ", ".join(self.medications))
+        if self.allergies:
+            parts.append("allergies: " + ", ".join(self.allergies))
+        return f"\n\n[Patient profile: {'; '.join(parts)}]" if parts else ""
 
 
 class QueryOptions(BaseModel):
