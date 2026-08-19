@@ -1,9 +1,10 @@
 # ARCHITECTURE.md
 
-**Project:** Evidence-Grounded AI Clinical Decision Support Lite
+**Project:** Evidence-Grounded AI Clinical Decision Support Lite — deployed as **فقراتي (Faqarati)**, a physiotherapy-focused patient platform
 **Event:** AI Clinical Decision Support Lite Hackathon (5-day)
-**Status:** Pre-implementation — architecture approved, no code written yet
-**Companion documents:** [SPEC.md](SPEC.md) · [PLAN.md](PLAN.md) · [PROJECT-STATE.md](PROJECT-STATE.md) · [TODO-PRODUCTION.md](TODO-PRODUCTION.md)
+**Status:** **As-built** — implemented and publicly deployed on branch `feat/qwen3-embedding-and-deploy`. §1–§22 are the approved pre-implementation design (kept intact because its reasoning still governs); **§23 is the as-built addendum** recording every deviation and extension, and takes precedence wherever the two differ.
+**Live deployment:** https://fatimahemadeldin-clinical-decision-support-rag.hf.space
+**Companion documents:** [SPEC.md](SPEC.md) · [PLAN.md](PLAN.md) · [PROJECT-STATE.md](PROJECT-STATE.md) · [TODO-PRODUCTION.md](TODO-PRODUCTION.md) · [README.md](README.md) · [docs/EMBEDDING-MODELS.md](docs/EMBEDDING-MODELS.md)
 
 > **Notation used throughout all project documents**
 > **[GUIDE]** marks a requirement stated explicitly in the official hackathon PDF.
@@ -160,7 +161,8 @@ Retrieval, Generation, Safety. Everything else supports them.
 
 ### 5.1 Corpus
 
-Seven frozen documents. Nothing outside this set is a valid source for a medical claim.
+Nine frozen documents (seven original + two added in the physiotherapy pivot, §23.3). Nothing
+outside this set is a valid source for a medical claim.
 
 | `document_id` | Title | Organization | Primary domains | Tier |
 |---|---|---|---|:--:|
@@ -171,6 +173,8 @@ Seven frozen documents. Nothing outside this set is a valid source for a medical
 | `who_aware` | WHO AWaRe Antibiotic Book | WHO | infectious-disease | 2 |
 | `uspstf_cvd_risk` | USPSTF Healthy Diet & Physical Activity — **with** CVD risk factors | USPSTF | prevention, nutrition, activity | 2 |
 | `uspstf_no_cvd_risk` | USPSTF Healthy Diet & Physical Activity — **without** known CVD risk factors | USPSTF | prevention, wellness, nutrition, activity | 2 |
+| `who_rehab_msk` | WHO Package of Interventions for Rehabilitation — Module 2: Musculoskeletal Conditions (2023) | WHO | musculoskeletal, rehabilitation | 2 |
+| `who_lbp` | WHO Guideline for Non-Surgical Management of Chronic Primary Low Back Pain in Adults (2023) | WHO | musculoskeletal, rehabilitation | 2 |
 
 **`who_aware` restriction.** This document may inform evidence about infections. It must **never**
 drive an autonomous antibiotic, dose, frequency, or duration recommendation to a patient. Enforced
@@ -392,6 +396,12 @@ Two candidates are benchmarked and **the decision is made by Day 2 midday**. An 
 embedding search is a schedule risk with a hard deadline; a timeboxed two-way comparison is not.
 Candidates and the winner are recorded in [PROJECT-STATE.md](PROJECT-STATE.md).
 
+**As-built:** the deployed model is **`Qwen/Qwen3-Embedding-0.6B`** (1024-dim, 32,768-token
+context, multilingual), replacing the original MiniLM whose 256-token effective cap was silently
+truncating 33,223 tokens of corpus content. Full migration detail, including the model-specific
+disciplines it adds (last-token pooling → left padding, instruct query prefix, token-budget
+batching), is in §23.1 and [docs/EMBEDDING-MODELS.md](docs/EMBEDDING-MODELS.md).
+
 ---
 
 ## 8. Vector Store
@@ -518,6 +528,13 @@ it drives the Sufficiency Gate (§11). Cosine similarity has no absolute meaning
 0.7 cosine threshold is arbitrary and breaks the moment the embedding model changes. Reranker
 logits are comparable and thresholdable.
 
+**As-built:** the deployed cross-encoder is **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`**
+(multilingual, ~3.7s per 25 pairs on CPU). Two alternatives were measured and rejected:
+`ms-marco-MiniLM` is English-only and produced uniformly deep-negative logits for Arabic questions
+(every one was auto-refused), and `bge-reranker-v2-m3` measured **105s/query** on the deployment's
+2 vCPUs — unusable. The rerank budget is env-tunable (`RERANK_TIMEOUT_SECONDS`, 8.0s in the
+deployed Space). Multilingual rerank strategy in §23.2.
+
 ### 9.5 Near-duplicate suppression
 
 Guidelines repeat themselves across chapters. Without suppression, top-5 can be five near-identical
@@ -580,6 +597,14 @@ ceiling on false refusals. Values recorded in [PROJECT-STATE.md](PROJECT-STATE.m
 
 A hand-picked threshold would make the **[GUIDE]**-required Day-5 refusal demonstration a coin
 flip. A fitted one makes it a measured property with a number attached.
+
+**As-built:** for the mmarco reranker, `τ_low = -3.60` and `τ_high = -0.39` (20-query live
+calibration against the deployed stack — coarser than a full `scripts/fit_thresholds.py` run,
+flagged for a proper re-fit). Both are env-overridable (`SUFFICIENCY_TAU_{LOW,HIGH}_RERANK`)
+because they are married to one reranker's logit scale. A **cross-lingual margin**
+(`SUFFICIENCY_CROSS_LINGUAL_MARGIN`, default 3.0) widens both taus for mostly-non-Latin
+questions — the taus are English-fitted, and rewrite paraphrases / cross-lingual pairs score
+measured ~3 points lower for the same information need (§23.2).
 
 ---
 
@@ -958,6 +983,12 @@ RAGAS is listed in [TODO-PRODUCTION.md](TODO-PRODUCTION.md) for continuous evalu
 
 ## 17. Frontend Architecture
 
+> **As-built:** the shipped patient-facing UI is the **فقراتي (Faqarati) physiotherapy platform**
+> (`frontend-faqarati/`, React 19 + Tailwind v4, bilingual Arabic-first RTL), with the clinical
+> assistant mounted in three places — see §23.5. The three-panel workspace described below
+> (`frontend/`) is retained as the clinical/diagnostic workspace and dev harness; its Evidence
+> Inspector and Trace Panel remain the transparency instruments described here.
+
 **Vite + React + Tailwind** (D4). No SSR, no PWA — neither earns points here. Static build served
 by any web server, talking to FastAPI over JSON.
 
@@ -1059,6 +1090,10 @@ minutes without re-ingesting seven PDFs.
 
 **Production** deployment topology is out of MVP scope — see [TODO-PRODUCTION.md](TODO-PRODUCTION.md).
 
+**As-built:** the system is additionally deployed publicly — a Hugging Face Docker Space carrying
+the full stack in one container (§23.7), a ZeroGPU Gradio Space for GPU-accelerated embedding, and
+a Railway project. `docker-compose` remains the local dev path.
+
 ---
 
 ## 20. Technology Stack
@@ -1068,13 +1103,14 @@ minutes without re-ingesting seven PDFs.
 | Backend | Python 3.11, FastAPI, Pydantic | Async, native OpenAPI, schema validation as a first-class concept |
 | PDF parsing | PyMuPDF | Fast, layout-aware, exact page anchoring |
 | Table extraction | pdfplumber | Better table fidelity where doses and thresholds live |
-| Embeddings | `TBD (pending Day-2 benchmark)` | Two candidates, decided by Day 2 midday |
+| Embeddings | `Qwen/Qwen3-Embedding-0.6B` (1024d, 32k ctx, multilingual) | Zero truncation on this corpus; Arabic + English in one vector space (§23.1) |
 | Vector store | Qdrant (Docker) | Payload filtering + hybrid named vectors in one service |
 | Sparse retrieval | BM25 as Qdrant sparse vectors | Exact clinical terminology; no second system |
-| Reranking | Cross-encoder | Largest single precision gain; provides a calibrated gate signal |
-| LLM | Provider-abstracted | Avoid vendor lock-in (G9) |
+| Reranking | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (multilingual) | Largest single precision gain; calibrated gate signal; scores Arabic natively (§23.2) |
+| LLM | Provider-abstracted — deployed on Ollama cloud, `gpt-oss:20b` | Avoid vendor lock-in (G9) |
+| Speech-to-text | Groq `whisper-large-v3` via OpenAI-compatible endpoint | Voice input with live dictation preview (§23.6) |
 | App storage | SQLite | Traces and eval runs only; no durable user data in MVP |
-| Frontend | Vite + React + Tailwind | Fast, no SSR overhead, sufficient polish for 5 UX points |
+| Frontend | فقراتي: Vite + React 19 + Tailwind v4 (bilingual RTL) · clinical workspace: Vite + React + Tailwind | Patient-facing product UI + judge-facing transparency panels (§23.5) |
 | Orchestration | docker-compose | Three services, one command |
 | Testing | pytest | Deterministic components are unit-tested; pipeline is smoke-tested |
 
@@ -1127,3 +1163,185 @@ review loop · and a formal Software-as-a-Medical-Device regulatory assessment.
 
 The last item is the one that most determines whether this system could ever face real patients.
 Nothing in this hackathon build should be read as clearing that bar.
+
+---
+
+## 23. As-Built Addendum — branch `feat/qwen3-embedding-and-deploy`
+
+Everything in this section is **implemented, tested, and live** at
+https://fatimahemadeldin-clinical-decision-support-rag.hf.space. Where it contradicts §1–§22, this
+section wins. Design values here are *measured on the deployed stack*, not projected.
+
+### 23.1 Embedding migration — MiniLM → Qwen3-Embedding-0.6B
+
+**Why.** The original MiniLM's 256-token effective window was silently truncating **33,223 tokens**
+of corpus content — including the never-split clinical tables (§6.1) that exist precisely because
+their content is dose- and threshold-critical. Truncation is the worst kind of retrieval bug: no
+error, plausible results, missing evidence.
+
+**What.** `Qwen/Qwen3-Embedding-0.6B` — 1024-dim, 32,768-token context, natively multilingual
+(Arabic and English land in one vector space, which is what makes the bilingual product possible
+without a translation hop at retrieval time). `embedding_version: qwen3-embed-0.6b-1`; the MiniLM
+config block is retained in `config/embedding.yaml` as a documented alternative.
+
+**Model-specific disciplines** (each silently degrades retrieval if skipped — the §7.2 principle):
+
+| Discipline | Value | Why it is load-bearing |
+|---|---|---|
+| Padding side | **left** | Qwen3 uses **last-token pooling**; right padding would pool a PAD token instead of the sentence |
+| Real context ceiling | **32,768** (`max_position_embeddings`) | The tokenizer advertises 131,072 — a trap; positions past 32,768 are garbage |
+| Query prefix | `Instruct: Given a clinical question, retrieve relevant passages from clinical practice guidelines\nQuery:` | Asymmetric instruct format; note **no trailing space** after `Query:` |
+| dtype on CPU | float32 | The checkpoint is bf16; CPU inference in bf16 is slow and lossy |
+| Batching | **token-budget** (8,192 padded tokens/batch), longest-first | Attention is O(n²); a fixed batch size OOMs the moment a 4,708-token table chunk lands in it — this killed both the HF builder and a ZeroGPU MIG slice before the fix |
+
+The provider (`backend/app/services/retrieval/embedding_provider.py`) asserts the configured
+dimension against the model at load, applies padding/dtype centrally, and scatter-gathers the
+token-budget batches back into input order.
+
+### 23.2 Multilingual pipeline — Arabic in, Arabic out, grounded
+
+The corpus is English; the users are Arabic-first. Every stage that touches language needed an
+explicit decision, and each one below was driven by a live-observed failure:
+
+1. **Query rewriting translates.** `03_query_rewriter` mandates ALL variants be English —
+   translation *is* rewriting. Retrieval fuses the original message with the English variants.
+2. **Rerank scores the best faithful phrasing.** For a mostly-non-Latin question, the reranker
+   scores the original (mmarco is multilingual) **and every English variant**, keeping the
+   best-scoring run. Measured basis: the same ankle question scored −3.40 asked in English vs
+   −6.95 through its first Arabic rewrite — variant order was deciding refusals by luck.
+3. **Cross-lingual sufficiency margin.** The taus are English-fitted; non-Latin questions get
+   `SUFFICIENCY_CROSS_LINGUAL_MARGIN` (default 3.0) subtracted from both taus. Live basis: a terse
+   Arabic back-pain query peaked at −6.45 while its entire top-5 was genuinely on-topic LBP
+   guidance — a correct retrieval refused by an inapplicable calibration. English calibration is
+   untouched; the trace reports the *effective* taus.
+4. **Answers come back in the question's language.** A system-prompt rule was not enough; the
+   generator injects a named-language note *in the user prompt next to the question*, with a
+   native-Arabic reinforcement line. The English patient-profile preamble is kept **outside**
+   `<patient_question>` (own `<patient_profile>` tag) and is stripped before language detection —
+   verified live that an English profile block inside the question flipped answers to English.
+5. **Fixed strings are localized.** Refusal messages, the recommendation line, low-risk fixed copy,
+   and emergency lead/instruction text all carry Arabic variants selected by the question's script
+   (Arabic-dominant → `ar`, else `en`; fallback to English, never silence). The Egypt locale
+   (`123`) is active in `config/emergency.yaml`, matching the UI's CTAs.
+
+### 23.3 Physiotherapy pivot — corpus, ground truth, retrieval hygiene
+
+The product (فقراتي) is a physiotherapy platform, so the corpus and evaluation were extended:
+
+- **+2 documents** (§5.1): `who_rehab_msk` (WHO Rehabilitation Package, Module 2: MSK, 2023) and
+  `who_lbp` (WHO chronic-LBP non-surgical management guideline, 2023). Domain labels gained
+  `musculoskeletal` and `rehabilitation`.
+- **Chunk store: 8,542 chunks** (7,381 original + 1,161 physio), committed at
+  `data/chunks/benchmark/1.0_S1.jsonl` = `data/chunk_store/medical_chunks.jsonl` (16.8 MB) —
+  permanently referenceable, zero chunk-id collisions. Filter physio content by
+  `document_id ∈ {who_rehab_msk, who_lbp}`.
+- **Ground truth**: `data/evaluation/dev.jsonl` gained `dev026–dev031` (fracture rehab, knee OA,
+  LBP exercise, MSK assessment, amputation rehab, patient education) with real page-range labels.
+- **Front-matter filter**: copyright pages, forewords, and TOCs repeat the document title with zero
+  clinical content, so they outrank real guidance on exactly the queries the document exists to
+  answer (live: the LBP guideline's page-1 copyright chunks took 2 of 5 evidence slots for "back
+  pain"). Filtered at candidate hydration — after dense+BM25, before rerank — covering both
+  retrieval arms without touching the built index.
+
+### 23.4 Safety layer — as-built deltas
+
+- **Dose scan is hard/contextual split** (SAF-7.2). The original patterns were written for the
+  antibiotic book and false-blocked the physio corpus's core grammar ("twice daily for 8 weeks",
+  "pain persisting for 3 months"). Now: hard signals (number-bound mg/mcg/µg/IU, take/give/
+  administer instructions) always block; frequencies, durations, and everyday units (g/kg/mL)
+  block **only when a medication is named in the same text**. "Ibuprofen once a day" blocks;
+  "stretch twice daily" passes. Regression-tested in both directions.
+- **Red-flag precheck, Risk Engine, and Decision Engine are wired** into the orchestrator
+  (`_safety_outcome` runs on every exit path so no refusal can drop the urgency floor — SAF-6.2).
+- **Prescribing input check** (SAF-7.3) short-circuits before the pipeline; its patterns require a
+  medication term after a measured false-refusal on "how much physical activity should I get".
+- **Patient profile is consumed** — `patient_context` (age, sex, conditions, medications,
+  allergies) folds into the message as a bracketed preamble every stage sees. It was previously
+  accepted and read by nothing (a silent placebo).
+
+### 23.5 فقراتي frontend — the shipped UI
+
+`frontend-faqarati/` (React 19, Tailwind v4 `@theme` tokens — brand teal + clinical indigo,
+Arabic-first RTL with a `t(ar, en)` language context). One flagship shared component,
+`PTClinicalAssistantTab`, mounts the full clinical pipeline in **three places**:
+
+| Mount | Audience | Form |
+|---|---|---|
+| Landing page `#ask-assistant` | Public / patients, no sign-in | Embedded section under the hero |
+| Patient portal | Signed-in patients | Open panel above the dashboard |
+| Doctor portal tab | Clinicians | **Full-screen** (viewport-filling conversation, pinned composer) |
+
+Component capabilities, all live: voice dictation with **live preview** (3s `MediaRecorder`
+timeslices progressively re-transcribed through `/api/transcribe`, `AbortController` on
+supersede) · browser TTS read-aloud with Arabic-script detection · care CTAs (tel: 123/105,
+geolocated hospital maps, lazy-loaded care directory) · patient profile panel (localStorage →
+`patient_context`) · Arabic OUT_OF_SCOPE messaging · scrollable auto-pinned history ·
+**verified example-prompt chips** (4 bilingual questions, every variant live-tested to answer
+grounded in its own language — the constant carries a warning not to add unverified examples).
+
+The faqarati Express server (`server/createApp.ts`, port 3000) serves the FitKG exercise graph and
+the Einstein planner — both now call the **same Ollama provider** (`gpt-oss:20b`) as the RAG
+backend; the Gemini dependency was removed.
+
+### 23.6 API surface — as-built
+
+The four §15.1 endpoints, plus:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/transcribe` | Raw audio body → Groq `whisper-large-v3` (OpenAI-compatible endpoint). 15 MB cap, content-type→extension map, `503 STT_UNCONFIGURED` without a key |
+| `GET` | `/api/care-directory` | Curated Egypt care directory (`data/care_directory.json`): 4 national hotlines + 10 hospitals/physio centers with Google Maps search links; `city`/`specialty` filters. Demo data — verify before real-care use |
+
+`GET /api/eval/report` from §15.1 is **not built** (needs a persisted latest-run concept);
+`options.stream` is accepted but streaming is not wired. Both are recorded honestly in code
+comments and [TODO-PRODUCTION.md](TODO-PRODUCTION.md).
+
+### 23.7 Deployment topology — as-built
+
+**Primary: Hugging Face Docker Space** (free cpu-basic, PRO account) — the full stack in one
+container because a Space exposes exactly one port:
+
+```
+nginx :7860 ──► فقراتي static bundle (/)
+   ├─ ^~ /api/query|transcribe|health|evidence|care-directory ──► uvicorn :8000 (FastAPI RAG)
+   └─ /api/ catch-all ──► node :3000 (faqarati Express: FitKG, Einstein)
+qdrant :6333 (internal only)
+```
+
+Non-obvious mechanics, each discovered the hard way:
+
+- **Index snapshots persist to a dataset repo** (`FatimahEmadEldin/cds-qdrant-snapshots`), keyed
+  `{collection}-{embedding_version}-{chunk_count}.snapshot`. Space storage is ephemeral; restoring
+  a snapshot makes cold start ~1 minute instead of a full re-embed. Cache-key change (new model or
+  chunk count) triggers a background rebuild + republish.
+- **Models are staged with `snapshot_download` only** at build — instantiating them in the builder
+  OOM-killed it (builders have far less RAM than the 16 GB runtime).
+- **Index build runs in the background at startup** — HF kills containers that don't bind a port
+  within ~30 min; `startup_duration_timeout: 1h`.
+- CSP `frame-ancestors` (not `X-Frame-Options`) so the HF iframe can embed the app;
+  `.gitattributes` forces `*.sh text eol=lf` (a CRLF shebang is `exit 127` on Linux);
+  `client_max_body_size 16m` for voice uploads; CORS `FRONTEND_ORIGIN` is never `*`.
+
+**Secondary: ZeroGPU Gradio Space** (`clinical-cds-assistant`) — same corpus, GPU-embedded.
+ZeroGPU rules that cost real debugging time: torch must be pinned to the platform allow-list
+(2.11.0 deployed), `.to("cuda")` only at module scope, and the `NVML INTERNAL ASSERT` error masks
+*both* a wrong torch version *and* an OOM — token-budget batching fixed the latter.
+
+**Railway**: services track `main`; a project token can query/update variables and trigger deploys
+via the GraphQL API (browser User-Agent required — the default Python UA is 403-blocked) but
+cannot switch the source branch — that needs two dashboard clicks per service. See
+[docs/RAILWAY-BRANCH-DEPLOY.md](docs/RAILWAY-BRANCH-DEPLOY.md).
+
+Secrets (`OLLAMA_API_KEY`, `HF_TOKEN`, `GROQ_API_KEY`) live only in `.env` (git- and
+docker-ignored) and the Space secret store — never committed, never baked into image layers.
+Patient message *content* is never logged; only lengths and stage metrics (§18.2).
+
+### 23.8 Known operational traits and open items
+
+- The **first query after a container (re)start can refuse spuriously** while the reranker warms —
+  retry once before diagnosing. The demo protocol's warm-up query (§18.4) covers this.
+- [EVALUATION.md](EVALUATION.md) numbers describe the **old MiniLM stack** — re-run flagged.
+- Threshold calibration is the coarse 20-query live fit (§11) — `scripts/fit_thresholds.py`
+  should be re-run on capable hardware.
+- The ZeroGPU Space's corpus copy lags at 7,381 chunks (Docker Space is current at 8,542).
+- Railway services still track `main` pending the dashboard branch switch.

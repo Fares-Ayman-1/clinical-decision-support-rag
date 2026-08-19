@@ -1,9 +1,16 @@
 # PLAN.md — Implementation Plan
 
-**Project:** Evidence-Grounded AI Clinical Decision Support Lite
+**Project:** Evidence-Grounded AI Clinical Decision Support Lite — deployed as **فقراتي (Faqarati)**
 **Duration:** 5 days · **Team:** 5 people
 **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) · **Requirements:** [SPEC.md](SPEC.md) · **Live status:** [PROJECT-STATE.md](PROJECT-STATE.md)
 **Original product vision (preserved):** [docs/plan-v0-original.md](docs/plan-v0-original.md)
+
+> **Status:** Phases 1–19 are the approved 5-day hackathon plan, preserved as written.
+> **Phases 20–26 (end of this document) record the work actually executed on branch
+> `feat/qwen3-embedding-and-deploy`** — the Qwen3 embedding migration, the multilingual pipeline,
+> the physiotherapy pivot, the فقراتي frontend, voice, working CTAs, and the public deployments —
+> each marked with what shipped and what remains. The live system:
+> https://fatimahemadeldin-clinical-decision-support-rag.hf.space
 
 > **Task tags**
 > `[MVP]` — required for a complete hackathon submission
@@ -837,3 +844,201 @@ When two tasks compete, the higher one wins:
 | Evaluation Metrics | 15 | Phase 13 | `EVALUATION.md`; `dev`/`golden` split |
 | Clinical Safety | 10 | Phase 14 | Safety suite; live refusal demo |
 | UX & Live Demo | 5 | Phases 17, 19 | Three panels; judge query handled live |
+
+---
+
+# EXECUTED PHASES — branch `feat/qwen3-embedding-and-deploy`
+
+The phases below were **executed and shipped** after the plan above was written. They are the
+record your documentation and presentation should draw from — every claim here is verifiable in
+the repo, the commit history, or the live deployment. Architecture detail:
+[ARCHITECTURE.md](ARCHITECTURE.md) §23. Requirement mapping: [SPEC.md](SPEC.md) Part H.
+
+---
+
+# PHASE 20 — Embedding Migration (MiniLM → Qwen3) ✅ SHIPPED
+
+### Objective
+Eliminate silent truncation: the MiniLM 256-token window was cutting 33,223 tokens of corpus
+content, including the never-split clinical tables.
+
+### What shipped
+- `Qwen/Qwen3-Embedding-0.6B` as the primary provider — 1024-dim, 32,768-token real context
+  (`max_position_embeddings`; the tokenizer's 131,072 is a trap), multilingual
+- Model-correct disciplines, applied centrally: **left padding** (last-token pooling), asymmetric
+  instruct query prefix ending `\nQuery:` (no trailing space), float32 on CPU
+- **Token-budget batching** (8,192 padded tokens/batch, longest-first, scatter back) — attention is
+  O(n²), and a fixed batch size OOM'd on the 4,708-token table chunk in both the HF builder and a
+  ZeroGPU slice
+- `embedding_version: qwen3-embed-0.6b-1`; dim asserted against config at load; MiniLM kept as a
+  documented config alternative
+- [docs/EMBEDDING-MODELS.md](docs/EMBEDDING-MODELS.md) — reusable model-selection reference
+
+### Completion
+- [x] Zero truncation across the full corpus
+- [x] Full re-index; snapshot published
+- [x] Unit tests: prefixes, batching, dimension assert
+
+---
+
+# PHASE 21 — Multilingual Pipeline (Arabic ⇄ English) ✅ SHIPPED
+
+### Objective
+Arabic questions must get grounded Arabic answers from the English corpus — and English questions
+must be unaffected.
+
+### What shipped
+- **Reranker swap** to `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (multilingual, ~3.7s/25 pairs).
+  Measured rejections: `ms-marco` (English-only) auto-refused every Arabic question;
+  `bge-reranker-v2-m3` took 105s/query on 2 vCPUs
+- Query rewriter mandates **English variants for any input language**; retrieval fuses original +
+  variants
+- **Best-of reranking**: non-Latin questions score the original *and* every English variant, keep
+  the best run (measured −3.40 EN vs −6.95 via rewrite for the same question)
+- **Cross-lingual sufficiency margin** (`SUFFICIENCY_CROSS_LINGUAL_MARGIN`, default 3.0): both
+  English-fitted taus widen for non-Latin questions; effective taus reported in the trace
+- **Answer-language enforcement**: named-language note beside the question in the user prompt,
+  native-Arabic reinforcement line, profile preamble kept outside `<patient_question>` and stripped
+  from language detection
+- **Localized fixed strings**: refusals, recommendation line, low-risk copy, emergency
+  lead/instruction — all en/ar keyed by the question's script; Egypt locale (123) active
+- Thresholds recalibrated for mmarco: τ_low −3.60 / τ_high −0.39 (20-query live fit; full re-fit
+  flagged)
+
+### Completion
+- [x] Verified live both directions, including with an English profile attached
+- [x] English path byte-identical (calibration preserved)
+- [ ] Full `scripts/fit_thresholds.py` re-fit on capable hardware — **open**
+
+---
+
+# PHASE 22 — Physiotherapy Corpus Expansion ✅ SHIPPED
+
+### Objective
+Pivot the product domain to physiotherapy/MSK (فقراتي) with properly chunked WHO sources and
+ground truth.
+
+### What shipped
+- `who_rehab_msk` (WHO Rehabilitation Package, **Module 2**: MSK, 2023) and `who_lbp` (WHO chronic
+  LBP guideline, 2023) registered in `config/corpus.yaml` (tier 2, generic heading profile)
+- **8,542-chunk store** (7,381 + 1,161; zero id collisions), committed permanently at
+  `data/chunks/benchmark/1.0_S1.jsonl` = `data/chunk_store/medical_chunks.jsonl` (16.8 MB)
+- Domain labels: + `musculoskeletal`, `rehabilitation`
+- Ground truth `dev026–dev031`: fracture rehab, knee OA, LBP exercise, MSK assessment, amputation
+  rehab, patient education — real page-range labels
+- **Front-matter candidate filter**: copyright/foreword/TOC chunks dropped before rerank (live: the
+  LBP copyright page took 2 of 5 evidence slots for "back pain")
+- **Dose-scan hard/contextual split**: exercise-prescription grammar ("twice daily for 8 weeks")
+  no longer false-blocks; medication dosing still blocks — regression-tested both directions
+
+### Completion
+- [x] Verified live: Arabic fracture-rehab answer cites WHO Rehab Module 2; LBP answers cite the
+  LBP guideline
+- [ ] [EVALUATION.md](EVALUATION.md) re-run under the new stack — **open**
+
+---
+
+# PHASE 23 — فقراتي Frontend Integration ✅ SHIPPED
+
+### Objective
+Make the فقراتي physiotherapy platform the product UI, with the full clinical pipeline as its
+flagship assistant — inside this repo and this deployment, not a separate app.
+
+### What shipped
+- `frontend-faqarati/` — React 19, Tailwind v4 `@theme` tokens (brand teal + clinical indigo),
+  Arabic-first RTL with `t(ar, en)` language context
+- **`PTClinicalAssistantTab`** shared component mounted in three places: landing page
+  (`#ask-assistant`, public), patient portal (open panel), doctor portal (**full-screen** tab)
+- Voice dictation with **live preview** (3s MediaRecorder timeslices, progressive re-transcription,
+  AbortController) + browser **TTS** read-aloud with Arabic-script voice selection
+- Patient **profile panel** (age, sex, conditions, medications, allergies → localStorage →
+  `patient_context`, now actually consumed by the pipeline)
+- **Verified example-prompt chips**: 4 bilingual questions, all 8 variants live-tested before
+  shipping; click = send in the current UI language
+- Scrollable auto-pinned chat history; Arabic OUT_OF_SCOPE messaging
+- faqarati Express server ported off Gemini onto the **same Ollama provider** (`gpt-oss:20b`) as
+  the RAG backend; FitKG graph + Einstein planner intact
+- Old `frontend/` workspace retained (trace panel + evidence inspector — the judge-facing
+  transparency views)
+
+### Completion
+- [x] All three mounts verified live
+- [ ] Admin logs dashboard (`/workspace/` route serving the old workspace) — **open, discussed**
+
+---
+
+# PHASE 24 — Working CTAs & Care Directory ✅ SHIPPED
+
+### Objective
+Every call-to-action button works end to end — calls, hotlines, maps, directory.
+
+### What shipped
+- `data/care_directory.json`: 4 Egyptian national hotlines (123/122/180/105) + 10
+  hospitals/physio centers, bilingual names, Google Maps search links (no API key)
+- `GET /api/care-directory` with `city`/`specialty` filters; `.dockerignore` re-include guard
+- UI CTAs: `tel:123` / `tel:105`, geolocated nearby-hospitals maps search (graceful without
+  geolocation), lazy directory browser
+- `POST /api/transcribe`: raw-body audio → Groq `whisper-large-v3`, 15 MB cap, honest 503 when
+  unconfigured
+- Egypt emergency locale active in `config/emergency.yaml` with Arabic variants
+
+### Completion
+- [x] All CTAs verified live end to end
+- [x] Directory flagged as curated demo data (verify before real-care use)
+
+---
+
+# PHASE 25 — Public Deployment ✅ SHIPPED
+
+### Objective
+The full stack publicly reachable and reproducibly bootable — not just on the demo laptop.
+
+### What shipped
+- **HF Docker Space** (primary): one container — nginx :7860 serves فقراتي and splits `/api/` by
+  exact prefix between FastAPI :8000 (query/transcribe/health/evidence/care-directory) and the
+  faqarati Express :3000 (FitKG/Einstein); Qdrant :6333 internal
+- **Snapshot persistence** to dataset repo `FatimahEmadEldin/cds-qdrant-snapshots`, keyed
+  `{collection}-{embedding_version}-{chunk_count}` → ~1-minute cold starts; background index build
+  + republish on cache-key miss; `startup_duration_timeout: 1h`
+- Build survival rules learned the hard way: models staged via `snapshot_download` only (builder
+  OOM), `libunwind8` for the Qdrant binary, CSP `frame-ancestors` for the HF iframe,
+  `*.sh text eol=lf`, `client_max_body_size 16m`
+- **ZeroGPU Gradio Space** (`clinical-cds-assistant`): torch pinned to the platform allow-list
+  (2.11.0), `.to("cuda")` at module scope only, token-budget batching (the NVML INTERNAL ASSERT
+  masks both wrong-torch and OOM)
+- **Railway**: variables fixed via the GraphQL API (project token + browser User-Agent — the
+  default Python UA is 403-blocked); documented in
+  [docs/RAILWAY-BRANCH-DEPLOY.md](docs/RAILWAY-BRANCH-DEPLOY.md)
+- Secrets only in `.env` (git/docker-ignored) and the Space secret store; patient message content
+  never logged
+
+### Completion
+- [x] Space RUNNING on free cpu-basic; `/api/health` → 8,542 points, status ok
+- [ ] Railway branch switch (2 dashboard clicks per service — project tokens cannot do it) — **open**
+- [ ] ZeroGPU Space corpus refresh to 8,542 — **open**
+
+---
+
+# PHASE 26 — Arabic Reliability Hardening ✅ SHIPPED
+
+### Objective
+Close every live-observed failure on Arabic physiotherapy questions (the demo's primary path).
+
+### What shipped — each fix driven by a reproduced live failure
+1. Dose scan false-blocking physio answers → hard/contextual pattern split (Phase 22)
+2. Copyright-page chunks poisoning retrieval → front-matter candidate filter
+3. English-fitted taus refusing correct Arabic retrievals → cross-lingual margin
+4. English refusals/recommendations to Arabic questions → localized fixed strings
+5. English answers when a profile was attached → `<patient_profile>` tag separation +
+   preamble-stripped language detection + native-script directive
+6. Verified example prompts so the demo path is proven, not hoped
+
+### Completion
+- [x] A/B verified live: `الم الظهر`, `ظهري يؤلمني ماذا افعل` (with and without profile), and
+  English `back pain` all return grounded answers in their own language
+- [x] Test suite green (safety 67, incl. new bidirectional dose-scan regressions)
+
+### Known operational trait
+The **first query after a container restart can refuse spuriously** while the reranker warms —
+retry once. The Phase 19 demo protocol (green health check + one warm-up query) already covers
+this; keep following it.

@@ -1,8 +1,9 @@
 # SPEC.md — Technical & Functional Specification
 
-**Project:** Evidence-Grounded AI Clinical Decision Support Lite
-**Version:** 1.0 · **Status:** Approved, pre-implementation
-**Companions:** [ARCHITECTURE.md](ARCHITECTURE.md) · [PLAN.md](PLAN.md) · [PROJECT-STATE.md](PROJECT-STATE.md) · [TODO-PRODUCTION.md](TODO-PRODUCTION.md)
+**Project:** Evidence-Grounded AI Clinical Decision Support Lite — deployed as **فقراتي (Faqarati)**
+**Version:** 2.0 · **Status:** **As-built** on branch `feat/qwen3-embedding-and-deploy` — Parts A–G are the approved v1.0 specification (requirement IDs frozen); **Part H records every as-built variance**, and Parts B.9–B.11, D.11, and F.8–F.9 add the requirements this branch implemented beyond v1.0. Where Part H contradicts an earlier part, Part H is the truth.
+**Live deployment:** https://fatimahemadeldin-clinical-decision-support-rag.hf.space
+**Companions:** [ARCHITECTURE.md](ARCHITECTURE.md) (§23 = as-built) · [PLAN.md](PLAN.md) · [PROJECT-STATE.md](PROJECT-STATE.md) · [TODO-PRODUCTION.md](TODO-PRODUCTION.md) · [README.md](README.md)
 
 > **Requirement notation**
 > **[GUIDE]** — mandated by the official hackathon PDF
@@ -233,6 +234,42 @@ machinery is unavailable.
 | **FR-8.9** | Any external action MUST require explicit user confirmation | MVP |
 | **FR-8.10** | UI MUST be legible on a projector | MVP |
 
+## B.9 Voice Input & Output *(added in v2.0 — implemented)*
+
+| ID | Requirement | Priority |
+|---|---|---|
+| **FR-9.1** | System MUST accept spoken input and transcribe it server-side (`POST /api/transcribe`, Groq `whisper-large-v3`) | MVP |
+| **FR-9.2** | Transcription MUST show a **live preview** while the user is still speaking (progressive re-transcription of the accumulating recording) | MVP |
+| **FR-9.3** | Audio MUST be size-capped (15 MB) and rejected with a structured error above the cap | MVP |
+| **FR-9.4** | A missing STT key MUST yield `503 STT_UNCONFIGURED`, never a silent failure | MVP |
+| **FR-9.5** | Answers MUST be readable aloud on demand (browser TTS), selecting an Arabic voice for Arabic text | MVP |
+| **FR-9.6** | Raw audio MUST NOT be persisted server-side | MVP |
+
+## B.10 Care Directory & Action Buttons *(added in v2.0 — implemented)*
+
+| ID | Requirement | Priority |
+|---|---|---|
+| **FR-10.1** | Every action button rendered by the UI MUST work end-to-end (no dead CTAs) | MVP |
+| **FR-10.2** | Emergency call buttons MUST use configured numbers (`tel:123` ambulance, `tel:105` health hotline — Egypt locale) | MVP |
+| **FR-10.3** | "Nearby hospitals" MUST open a geolocated Google Maps search; denial of geolocation MUST degrade to a non-located search | MVP |
+| **FR-10.4** | `GET /api/care-directory` MUST serve the curated facility/hotline dataset with `city`/`specialty` filters | MVP |
+| **FR-10.5** | The directory MUST be labeled as curated demo data, to be verified before real-care use | MVP |
+| **FR-10.6** | Directory data MUST live in the repo (`data/care_directory.json`) and survive image builds (dockerignore re-include) | MVP |
+
+## B.11 Language Parity *(added in v2.0 — implemented)*
+
+The corpus is English; the users are Arabic-first. Every user-visible string must come back in the
+language of the question — including the strings the LLM never writes.
+
+| ID | Requirement | Priority |
+|---|---|---|
+| **FR-11.1** | The answer MUST be written in the language of the question (Arabic in → Arabic out; English in → English out) | MVP |
+| **FR-11.2** | Query rewriting MUST produce English variants for any input language (translation is rewriting) | MVP |
+| **FR-11.3** | Fixed refusal messages MUST be localized and selected by the question's script | MVP |
+| **FR-11.4** | The recommendation line, low-risk fixed copy, and emergency lead/instruction MUST be localized (`*_ar` config keys, English fallback — a missing translation must never suppress an emergency instruction) | MVP |
+| **FR-11.5** | Language detection MUST ignore the always-English patient-profile preamble | MVP |
+| **FR-11.6** | Non-Latin questions MUST NOT be gated by English-fitted sufficiency thresholds without the cross-lingual margin (RAG-10.7) | MVP |
+
 ---
 
 # PART C — RAG REQUIREMENTS
@@ -348,6 +385,8 @@ MAY carry: `evidence_grade`, `recommendation_class`.
 | **RAG-10.4** | Neither MAY be a number produced by the LLM |
 | **RAG-10.5** | Sufficiency thresholds MUST be fitted on labeled data, not hand-picked |
 | **RAG-10.6** | Patient-facing UI MUST show qualitative bands; raw values appear only in the trace |
+| **RAG-10.7** | *(v2.0)* Mostly-non-Latin questions MUST have both rerank taus widened by `SUFFICIENCY_CROSS_LINGUAL_MARGIN` (default 3.0) — the taus are English-fitted and cross-lingual/paraphrase scoring runs measured ~3 points lower; the trace MUST report the effective taus |
+| **RAG-10.8** | *(v2.0)* Front-matter chunks (copyright pages, forewords, TOCs) MUST be filtered from rerank candidates — they repeat the document title with zero clinical content and displace real evidence |
 
 ---
 
@@ -422,6 +461,7 @@ belongs on the diagnosis, never on the action.
 | **SAF-7.2** | Responses drawing on `who_aware` MUST be scanned for dose patterns and blocked on match |
 | **SAF-7.3** | Prescription requests MUST return a referral, not a partial answer |
 | **SAF-7.4** | Enforcement MUST be in code, not prompt instruction alone |
+| **SAF-7.5** | *(v2.0)* The dose scan MUST distinguish medication dosing from exercise prescription: hard signals (number-bound mg/mcg/IU, take/give/administer instructions) always block; frequencies, durations, and everyday units block only with a medication named in the same text. Without this split the guard refused nearly every physiotherapy answer ("twice daily for 8 weeks" is exercise grammar) |
 
 ## D.8 Limitations & Disclaimers
 
@@ -545,7 +585,8 @@ The primary endpoint. Runs the full pipeline.
     "age": 54,
     "sex": "male",
     "known_conditions": ["hypertension"],
-    "medications": []
+    "medications": [],
+    "allergies": []                    // v2.0 — consumed: the profile folds into the message as a bracketed preamble every pipeline stage sees
   },
   "options": {
     "include_trace": true,             // default false
@@ -766,6 +807,48 @@ with `status: "refusal"`.
 `GET|POST|PUT|DELETE /api/emergency-contacts` · `GET /api/facilities/nearby` ·
 `GET /api/emergency/number` — tracked in [TODO-PRODUCTION.md](TODO-PRODUCTION.md).
 
+## F.8 `POST /api/transcribe` *(added in v2.0 — implemented)*
+
+Speech-to-text for voice input. The request body is the **raw audio bytes** (not multipart);
+`Content-Type` selects the format (`audio/webm`, `audio/mp4`, `audio/wav`, `audio/ogg`, `audio/mpeg`).
+Proxied server-side to Groq's OpenAI-compatible endpoint, model `whisper-large-v3`
+(`GROQ_STT_MODEL`). The frontend calls this every ~3s with the accumulating recording to render a
+live dictation preview, aborting superseded requests.
+
+```jsonc
+// 200 OK
+{ "text": "ظهري يؤلمني ماذا افعل" }
+```
+
+| HTTP | Code | Meaning |
+|---|---|---|
+| 413 | `AUDIO_TOO_LARGE` | Body exceeds 15 MB (`MAX_AUDIO_BYTES`) |
+| 503 | `STT_UNCONFIGURED` | No `GROQ_API_KEY` set |
+| 502 | `STT_UPSTREAM` | Groq returned an error |
+
+Audio is never persisted; the transcript is returned and discarded server-side.
+
+## F.9 `GET /api/care-directory` *(added in v2.0 — implemented)*
+
+The dataset behind the care CTAs. Serves `data/care_directory.json` (cached at startup): 4 Egyptian
+national hotlines (123 ambulance, 122 police, 180 fire, 105 MoH) and 10 hospitals/physiotherapy
+centers with bilingual names and Google Maps search deep links (no Maps API key needed). Query
+params: `city`, `specialty` (exact-match filters on facilities).
+
+```jsonc
+// 200 OK (abbreviated)
+{
+  "hotlines":   [ { "id": "ambulance", "name_ar": "الإسعاف المصري", "name_en": "Egyptian Ambulance", "phone": "123", "kind": "emergency" } ],
+  "facilities": [ { "id": "kasr_alainy", "name_en": "Kasr Al-Ainy Hospital (Cairo University)", "city": "Cairo",
+                    "specialties": ["emergency","orthopedics","rehabilitation","general"],
+                    "maps_url": "https://www.google.com/maps/search/?api=1&query=..." } ]
+}
+```
+
+`503 DIRECTORY_UNAVAILABLE` when the JSON is missing from the image (regression-guarded by a
+`.dockerignore` re-include). The `_meta` block marks it as curated demo data to verify before any
+real-care use.
+
 ---
 
 # PART G — ACCEPTANCE CRITERIA
@@ -847,3 +930,56 @@ Section G.1 is worth 70 points and must be finished before anything in G.4–G.5
 
 **AC-51 and AC-11 are the two criteria most likely to be probed.** The first cannot be rehearsed;
 the second is the standard question asked of any team reporting strong retrieval numbers.
+
+---
+
+# PART H — AS-BUILT VARIANCES (v2.0, branch `feat/qwen3-embedding-and-deploy`)
+
+Every place the implemented system differs from Parts A–G, recorded honestly. This table — not the
+frozen v1.0 text — is what the deployed system actually does. Architecture detail for each row is
+in [ARCHITECTURE.md](ARCHITECTURE.md) §23.
+
+## H.1 Requirement variances
+
+| v1.0 requirement | As-built reality |
+|---|---|
+| **RAG-1.3** — corpus frozen at seven documents | **Nine** documents: `who_rehab_msk` and `who_lbp` added for the physiotherapy pivot. Still frozen — nothing outside the nine is a valid source. Chunk store: **8,542 chunks**, committed at `data/chunks/benchmark/1.0_S1.jsonl` |
+| **RAG-2.3** — 400–600 tokens pending benchmark | Benchmarked config shipped as kb `1.0_S1`; the physio documents were chunked with the same section-aware pipeline and generic heading profile |
+| **RAG-4.7** — two embedding models evaluated | Evaluated and decided: **`Qwen/Qwen3-Embedding-0.6B`** (1024-dim, 32,768-token context, multilingual, last-token pooling → left padding, instruct query prefix, token-budget batching). MiniLM retained as a config alternative. Full comparison: [docs/EMBEDDING-MODELS.md](docs/EMBEDDING-MODELS.md) |
+| **RAG-6.1** — a cross-encoder reranks | **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`** (multilingual). `ms-marco` (English-only) auto-refused every Arabic question; `bge-reranker-v2-m3` measured 105s/query on 2 vCPUs. Timeout env-tunable (`RERANK_TIMEOUT_SECONDS`, 8.0 deployed) |
+| **RAG-10.5** — thresholds fitted on labeled data | Fitted for mmarco by a 20-query live calibration (`τ_low=-3.60`, `τ_high=-0.39`) — coarser than the full `fit_thresholds.py` protocol; proper re-fit flagged. Env-overridable |
+| **SAF-7.2** — dose patterns blocked on match | Split into hard vs contextual patterns (SAF-7.5) after the original patterns false-blocked physiotherapy exercise prescriptions |
+| **SAF-8.2** — fixed low-risk copy | Still fixed, now **language-keyed** (en/ar), selected by the question's script |
+| **SAF-6.5** — emergency numbers from configuration | Egypt locale **active** (`123`), with Arabic instruction variants (`*_ar` keys, English fallback) — matching the UI's CTAs and the care directory |
+| **FR-4.8** — response streaming | **Not wired.** `options.stream` is accepted and ignored; responses return complete. Tracked in [TODO-PRODUCTION.md](TODO-PRODUCTION.md) |
+| **F.5** — `GET /api/eval/report` | **Not built** (needs a persisted latest-run concept). [EVALUATION.md](EVALUATION.md) exists but its numbers describe the pre-migration MiniLM stack — re-run flagged |
+| **F.1** — `patient_context` | Now **consumed**: folds into the message as a bracketed preamble every stage sees (it was previously accepted and read by nothing). Gained `allergies` |
+| **FR-8.x** — three-panel UI | The shipped patient-facing UI is **فقراتي** (`frontend-faqarati/`, bilingual Arabic-first RTL) with the clinical assistant mounted on the landing page, patient portal, and doctor portal (full-screen). The three-panel workspace (`frontend/`) is retained as the clinical/diagnostic view |
+| §19 — local-only deployment | Additionally deployed publicly: HF Docker Space (nginx + FastAPI + Express + Qdrant in one container, snapshot-based ~1-min cold start), ZeroGPU Gradio Space, Railway project. See [ARCHITECTURE.md](ARCHITECTURE.md) §23.7, [DEPLOYMENT.md](DEPLOYMENT.md), [docs/RAILWAY-BRANCH-DEPLOY.md](docs/RAILWAY-BRANCH-DEPLOY.md) |
+
+## H.2 New capabilities beyond v1.0 (all implemented and live)
+
+- **Full language parity** (B.11): Arabic questions get Arabic grounded answers, Arabic refusals,
+  Arabic recommendation/emergency copy — verified live in both directions, including with an
+  English patient profile attached.
+- **Cross-lingual retrieval chain** (RAG-10.7): English rewrites fused with the original, best-of
+  reranking across original + all variants, cross-lingual sufficiency margin.
+- **Voice** (B.9): live-preview dictation via Groq `whisper-large-v3` + browser TTS read-aloud.
+- **Working CTAs** (B.10): emergency calls, health hotline, geolocated hospital maps, care
+  directory — end to end.
+- **Verified example prompts**: 4 bilingual questions in the assistant's empty state, every
+  variant live-tested to return a grounded answer in its own language before shipping.
+- **Physio ground truth**: `dev026–dev031` with real page-range labels.
+- **Front-matter candidate filter** (RAG-10.8).
+
+## H.3 Env-tunable knobs added in v2.0
+
+| Variable | Default | Governs |
+|---|---|---|
+| `SUFFICIENCY_TAU_LOW_RERANK` / `SUFFICIENCY_TAU_HIGH_RERANK` | -3.60 / -0.39 | Refusal / confidence thresholds (mmarco logit scale) |
+| `SUFFICIENCY_CROSS_LINGUAL_MARGIN` | 3.0 | Tau widening for non-Latin questions |
+| `RERANK_TIMEOUT_SECONDS` | 3.0 (8.0 deployed) | Rerank budget before RRF fallback |
+| `GROQ_API_KEY` / `GROQ_STT_MODEL` | — / whisper-large-v3 | Speech-to-text |
+| `FRONTEND_ORIGIN` | localhost | CORS allow-list — never `*` |
+
+The full variable table lives in [README.md](README.md).
