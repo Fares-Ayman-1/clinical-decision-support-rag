@@ -113,6 +113,21 @@ import os as _os
 TAU_HIGH_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_HIGH_RERANK", "-0.39"))
 TAU_LOW_RERANK = float(_os.environ.get("SUFFICIENCY_TAU_LOW_RERANK", "-3.60"))
 
+# Cross-lingual margin: the taus above were fitted on ENGLISH questions.
+# A non-English question is scored either through an LLM rewrite (a
+# paraphrase, which the cross-encoder scores systematically below native
+# phrasing) or — when the rewrite fails — as a raw cross-lingual pair.
+# Measured live on the deployed mmarco stack: the same ankle question
+# scored -3.40 asked in English vs -6.95 via its Arabic rewrite (~3.5
+# penalty); a terse Arabic back-pain query peaked at -6.45 while its
+# top-5 evidence was all genuinely on-topic LBP guidance — a correct
+# retrieval refused purely because English-fitted taus were applied to a
+# penalized score. Both taus shift by the margin so the SUFFICIENT/
+# PARTIAL boundary moves consistently with the refusal boundary. English
+# queries are untouched — the fitted calibration stays valid where it
+# was actually fitted.
+CROSS_LINGUAL_MARGIN = float(_os.environ.get("SUFFICIENCY_CROSS_LINGUAL_MARGIN", "3.0"))
+
 # RRF score scale (~0.01-0.06 for top-5 on this corpus). STILL PROVISIONAL —
 # only reachable on the reranker-failure fallback path, never fitted.
 PROVISIONAL_TAU_HIGH_RRF = 0.045
@@ -142,11 +157,21 @@ def evaluate_sufficiency(
     tau_low_rerank: float = TAU_LOW_RERANK,
     tau_high_rrf: float = PROVISIONAL_TAU_HIGH_RRF,
     tau_low_rrf: float = PROVISIONAL_TAU_LOW_RRF,
+    cross_lingual: bool = False,
 ) -> SufficiencyResult:
+    """`cross_lingual=True` widens both rerank taus by CROSS_LINGUAL_MARGIN
+    — see the constant's comment. The RRF fallback taus are NOT shifted:
+    RRF is rank fusion, not a text-pair score, so it carries no
+    paraphrase/cross-lingual penalty to compensate for. The result's
+    tau_high/tau_low report the EFFECTIVE values used, so a trace of a
+    cross-lingual decision is self-explaining."""
     if pack.top_rerank_score is not None:
         signal_used = "rerank"
         top_score = pack.top_rerank_score
         tau_high, tau_low = tau_high_rerank, tau_low_rerank
+        if cross_lingual:
+            tau_high -= CROSS_LINGUAL_MARGIN
+            tau_low -= CROSS_LINGUAL_MARGIN
     else:
         signal_used = "rrf"
         top_score = pack.top_rrf_score

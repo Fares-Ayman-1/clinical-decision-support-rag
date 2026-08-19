@@ -203,20 +203,27 @@ class OrchestratorResult:
     dose_block: DoseScanResult | None = None
 
 
+def _is_non_latin_query(patient_message: str) -> bool:
+    """<50% of alphabetic characters are ASCII — an Arabic/Chinese/Russian
+    question fails that decisively; an English question with a stray
+    unicode symbol passes it. The always-English profile preamble is
+    stripped first so a filled-in profile can't flip a short Arabic
+    question to 'Latin'."""
+    letters = [c for c in strip_profile_preamble(patient_message) if c.isalpha()]
+    if not letters:
+        return False
+    latin = sum(1 for c in letters if c.isascii())
+    return latin / len(letters) < 0.5
+
+
 def _select_rerank_query(patient_message: str, english_variants: list[str]) -> str:
     """English questions keep the original — the sufficiency-gate thresholds
     were fitted on exactly that population. A mostly-non-Latin question falls
     back to its first English rewrite so the English-only cross-encoder scores
-    a pair it can actually judge. Threshold: <50% of alphabetic characters are
-    ASCII (an Arabic/Chinese/Russian question fails that decisively; an English
-    question with a stray unicode symbol passes it)."""
+    a pair it can actually judge."""
     if not english_variants:
         return patient_message
-    letters = [c for c in patient_message if c.isalpha()]
-    if not letters:
-        return patient_message
-    latin = sum(1 for c in letters if c.isascii())
-    if latin / len(letters) >= 0.5:
+    if not _is_non_latin_query(patient_message):
         return patient_message
     return english_variants[0]
 
@@ -410,8 +417,9 @@ def run_query(
     )
     pack = build_evidence_pack(pipeline_result, chunk_store, rewritten_queries=queries[1:])
 
-    sufficiency = evaluate_sufficiency(pack)
-    trace.record("sufficiency", {"state": sufficiency.state.value, "signal_used": sufficiency.signal_used, "top_score": sufficiency.top_score, "tau_high": sufficiency.tau_high, "tau_low": sufficiency.tau_low})
+    cross_lingual = _is_non_latin_query(patient_message)
+    sufficiency = evaluate_sufficiency(pack, cross_lingual=cross_lingual)
+    trace.record("sufficiency", {"state": sufficiency.state.value, "signal_used": sufficiency.signal_used, "top_score": sufficiency.top_score, "tau_high": sufficiency.tau_high, "tau_low": sufficiency.tau_low, "cross_lingual_margin_applied": cross_lingual})
     supported_domain = bool(predicted_domains)
 
     def _trace_out() -> dict:

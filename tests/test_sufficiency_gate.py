@@ -158,3 +158,30 @@ def test_every_refusing_state_maps_to_a_valid_api_reason_code():
         for lang in ("en", "ar"):
             assert lang in REFUSAL_MESSAGES[state], f"{state} missing {lang} message"
             RefusalOut(reason=REFUSAL_REASON_CODES[state], message=REFUSAL_MESSAGES[state][lang])
+
+
+def test_cross_lingual_margin_widens_both_rerank_taus():
+    """A non-English question is scored through a rewrite (paraphrase
+    penalty) or as a raw cross-lingual pair — measured ~3 points below the
+    English-fitted taus for the same information need. The margin must
+    rescue a score that would refuse under English taus, and the result
+    must report the EFFECTIVE taus so traces are self-explaining."""
+    from app.services.rag.sufficiency_gate import CROSS_LINGUAL_MARGIN
+
+    # -6.45 was the live top score for a terse Arabic back-pain query whose
+    # top-5 evidence was all genuinely on-topic LBP guidance.
+    score = TAU_LOW_RERANK - CROSS_LINGUAL_MARGIN + 0.1
+    assert evaluate_sufficiency(_rerank_pack(score)).state == SufficiencyState.INSUFFICIENT
+    result = evaluate_sufficiency(_rerank_pack(score), cross_lingual=True)
+    assert result.state == SufficiencyState.PARTIAL
+    assert result.tau_low == TAU_LOW_RERANK - CROSS_LINGUAL_MARGIN
+    assert result.tau_high == TAU_HIGH_RERANK - CROSS_LINGUAL_MARGIN
+
+
+def test_cross_lingual_margin_does_not_shift_rrf_fallback():
+    """RRF is rank fusion, not a text-pair score — no penalty to offset."""
+    pack = _pack(top_rrf=PROVISIONAL_TAU_LOW_RRF - 0.001, support_count=2)
+    result = evaluate_sufficiency(pack, cross_lingual=True)
+    assert result.signal_used == "rrf"
+    assert result.tau_low == PROVISIONAL_TAU_LOW_RRF
+    assert result.state == SufficiencyState.INSUFFICIENT
