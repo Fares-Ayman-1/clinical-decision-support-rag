@@ -67,7 +67,7 @@ from app.schemas.query import (
     TraceStageOut,
     normalize_severity,
 )
-from app.services.rag.query_orchestrator import run_query
+from app.services.rag.query_orchestrator import _message_language, run_query
 from app.services.retrieval.qdrant_index import collection_name
 
 _resources: AppResources | None = None
@@ -263,7 +263,46 @@ _ACTION_TYPE_BY_URGENCY = {
 }
 
 
-def _build_recommended_action(result) -> RecommendedActionOut:
+# Fixed recommended-action copy, language-keyed so an Arabic question is
+# never answered with an English recommendation line (the emergency and
+# low-risk strings arrive already localized from the Decision Engine —
+# these are the three composed here at the API boundary).
+_RECOMMENDED_ACTION_COPY = {
+    "default_guidance": {
+        "en": (
+            "Review the evidence-grounded assessment below. If symptoms are severe or "
+            "rapidly worsening, seek professional medical evaluation."
+        ),
+        "ar": (
+            "راجع التقييم المستند إلى الأدلة أدناه. إذا كانت الأعراض شديدة أو تتفاقم "
+            "بسرعة، فاطلب تقييمًا طبيًا متخصصًا."
+        ),
+    },
+    "weak_support_followup": {
+        "en": (
+            " The available evidence is limited, so this is not a clean bill of health —"
+            " please share more detail, or speak to a healthcare professional if you are"
+            " concerned."
+        ),
+        "ar": (
+            " الأدلة المتاحة محدودة، لذا هذا ليس تأكيدًا لسلامتك — يُرجى مشاركة مزيد من "
+            "التفاصيل، أو التحدث مع مختص رعاية صحية إذا كنت قلقًا."
+        ),
+    },
+    "moderate_evaluation": {
+        "en": (
+            "Based on the available evidence, you should be assessed by a healthcare "
+            "professional. If symptoms worsen, seek care sooner."
+        ),
+        "ar": (
+            "بناءً على الأدلة المتاحة، ينبغي أن يقيّم حالتك مختص رعاية صحية. إذا "
+            "ساءت الأعراض، فاطلب الرعاية في وقت أقرب."
+        ),
+    },
+}
+
+
+def _build_recommended_action(result, lang: str = "en") -> RecommendedActionOut:
     """SAF-6.3 — a CRITICAL response leads with the emergency instruction.
     The emergency text comes from config/emergency.yaml via the Decision
     Engine, never from the LLM (SAF-6.5)."""
@@ -271,8 +310,9 @@ def _build_recommended_action(result) -> RecommendedActionOut:
     if decision is None or result.risk is None:
         return RecommendedActionOut(
             type="guidance",
-            message="Review the evidence-grounded assessment below. If symptoms are severe or "
-            "rapidly worsening, seek professional medical evaluation.",
+            message=_RECOMMENDED_ACTION_COPY["default_guidance"].get(
+                lang, _RECOMMENDED_ACTION_COPY["default_guidance"]["en"]
+            ),
         )
 
     urgency = result.risk.urgency.value
@@ -286,15 +326,12 @@ def _build_recommended_action(result) -> RecommendedActionOut:
         if decision.show_followup_question:
             # SAF-8.4 — weak support at LOW risk gets a follow-up, not
             # reassurance.
-            message += (
-                " The available evidence is limited, so this is not a clean bill of health —"
-                " please share more detail, or speak to a healthcare professional if you are"
-                " concerned."
+            message += _RECOMMENDED_ACTION_COPY["weak_support_followup"].get(
+                lang, _RECOMMENDED_ACTION_COPY["weak_support_followup"]["en"]
             )
     else:
-        message = (
-            "Based on the available evidence, you should be assessed by a healthcare "
-            "professional. If symptoms worsen, seek care sooner."
+        message = _RECOMMENDED_ACTION_COPY["moderate_evaluation"].get(
+            lang, _RECOMMENDED_ACTION_COPY["moderate_evaluation"]["en"]
         )
 
     return RecommendedActionOut(type=_ACTION_TYPE_BY_URGENCY.get(urgency, "guidance"), message=message)
@@ -538,7 +575,7 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
         supported_domain=result.supported_domain, domains=result.domains,
         patient_state=patient_state, assessment=assessment,
         risk=_build_risk_out(result, cited_chunk_ids),
-        recommended_action=_build_recommended_action(result),
+        recommended_action=_build_recommended_action(result, lang=_message_language(request.message)),
         actions=_build_actions_out(result),
         evidence=evidence_out, safety=safety, trace=trace_out, meta=meta,
     )

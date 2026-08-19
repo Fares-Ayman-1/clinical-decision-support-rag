@@ -157,14 +157,39 @@ def test_wellness_suppressed_on_high_and_critical():
 
 
 def test_emergency_numbers_come_from_configuration():
-    """SAF-6.5 — never from the LLM. The guidance must be sourced from the
-    config file, and the default locale must not invent a number."""
+    """SAF-6.5 — never from the LLM. The guidance must be byte-identical to
+    what config/emergency.yaml declares for the active locale — a number
+    from anywhere else (generated, retrieved, hardcoded) is the failure
+    this test exists to catch. The deployment activates the Egypt locale
+    (123), matching the care directory and every CTA, so the assertion is
+    against the config's own value rather than assuming the generic
+    no-number default."""
+    import pathlib
+
+    import yaml
+
+    cfg = yaml.safe_load(
+        (pathlib.Path(__file__).resolve().parents[1] / "config" / "emergency.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    locale = cfg["locales"][cfg["default_locale"]]
+
     actions = decide_actions(Urgency.CRITICAL, "SUFFICIENT", 3)
     assert actions.emergency is not None
-    assert actions.emergency.instruction
-    # The generic default deliberately carries no number rather than
-    # guessing one that would be wrong for most users.
-    assert actions.emergency.number is None
+    assert actions.emergency.instruction == locale["instruction"].strip()
+    assert actions.emergency.number == locale.get("number")
+
+
+def test_emergency_guidance_is_localized_for_arabic():
+    """An Arabic question gets the Arabic emergency instruction — with
+    English as the fallback, never silence, when a translation is absent."""
+    en = decide_actions(Urgency.CRITICAL, "SUFFICIENT", 3, lang="en")
+    ar = decide_actions(Urgency.CRITICAL, "SUFFICIENT", 3, lang="ar")
+    assert en.emergency is not None and ar.emergency is not None
+    assert ar.emergency.instruction != en.emergency.instruction
+    # The number is locale data, not display text — identical in every language.
+    assert ar.emergency.number == en.emergency.number
 
 
 def test_external_actions_always_require_confirmation():

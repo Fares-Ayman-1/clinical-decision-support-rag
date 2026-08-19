@@ -61,6 +61,12 @@ def _answer_language(patient_query: str) -> str | None:
         ((0xAC00, 0xD7AF), "Korean"),
         ((0x0900, 0x097F), "Hindi"),
     ]
+    from app.schemas.query import strip_profile_preamble
+
+    # The profile preamble is always English — counting its characters
+    # would flip detection to English for exactly the users who filled in
+    # their profile.
+    patient_query = strip_profile_preamble(patient_query)
     counts: dict[str, int] = {}
     for ch in patient_query:
         cp = ord(ch)

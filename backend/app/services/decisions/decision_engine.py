@@ -37,6 +37,16 @@ LOW_RISK_FIXED_COPY = (
     "currently available."
 )
 
+# Language-keyed fixed copy — still module constants, never prompt output
+# (the SAF-8.2 rationale above applies per language: each Arabic string is
+# a reviewed translation of the fixed English, not a paraphrase).
+LOW_RISK_FIXED_COPY_BY_LANG = {
+    "en": LOW_RISK_FIXED_COPY,
+    "ar": (
+        "لم يتم رصد علامات إنذار عاجلة من المعلومات والأدلة المتاحة حاليًا."
+    ),
+}
+
 
 @dataclass(frozen=True)
 class EmergencyGuidance:
@@ -70,20 +80,32 @@ def _load_emergency_config(config_path: str | None = None) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-def _emergency_guidance(urgency: Urgency, config_path: str | None = None) -> EmergencyGuidance | None:
+def _emergency_guidance(
+    urgency: Urgency, config_path: str | None = None, lang: str = "en"
+) -> EmergencyGuidance | None:
     """SAF-6.5 — emergency contact details come from configuration, never
-    from the LLM and never from retrieved document text."""
+    from the LLM and never from retrieved document text. Non-English
+    display text comes from `<key>_ar`-style siblings in the same config,
+    falling back to English when a translation is absent — a missing
+    translation must never suppress an emergency instruction."""
     if urgency.rank < Urgency.HIGH.rank:
         return None
+
+    def localized(mapping: dict, key: str) -> str:
+        if lang != "en":
+            value = mapping.get(f"{key}_{lang}")
+            if value:
+                return value.strip()
+        return mapping[key].strip()
 
     cfg = _load_emergency_config(config_path)
     locale = cfg["locales"][cfg.get("default_locale", "generic")]
     lead_key = "critical_lead" if urgency == Urgency.CRITICAL else "high_lead"
     return EmergencyGuidance(
-        lead_text=cfg[lead_key].strip(),
-        locale_label=locale["label"],
+        lead_text=localized(cfg, lead_key),
+        locale_label=localized(locale, "label"),
         number=locale.get("number"),
-        instruction=locale["instruction"].strip(),
+        instruction=localized(locale, "instruction"),
     )
 
 
@@ -93,6 +115,7 @@ def decide_actions(
     support_count: int,
     is_refusal: bool = False,
     config_path: str | None = None,
+    lang: str = "en",
 ) -> DecisionActions:
     critical = urgency == Urgency.CRITICAL
     high_or_above = urgency.rank >= Urgency.HIGH.rank
@@ -116,6 +139,8 @@ def decide_actions(
         suppress_wellness_content=high_or_above,  # SAF-6.4
         require_user_confirmation_for_external_actions=True,  # SAF-6.7, always
         show_followup_question=(low_risk and weak_support) or is_refusal,  # SAF-8.4
-        fixed_low_risk_copy=LOW_RISK_FIXED_COPY if low_risk else None,  # SAF-8.2
-        emergency=_emergency_guidance(urgency, config_path),
+        fixed_low_risk_copy=(
+            LOW_RISK_FIXED_COPY_BY_LANG.get(lang, LOW_RISK_FIXED_COPY) if low_risk else None
+        ),  # SAF-8.2
+        emergency=_emergency_guidance(urgency, config_path, lang=lang),
     )

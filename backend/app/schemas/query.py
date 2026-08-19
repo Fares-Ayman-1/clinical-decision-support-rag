@@ -14,9 +14,23 @@ handles it as optional). PROJECT-STATE.md decision D5 — Phase 14
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+_PROFILE_PREAMBLE = re.compile(r"\n*\[Patient profile:[^\]]*\]\s*$")
+
+
+def strip_profile_preamble(message: str) -> str:
+    """Removes the as_preamble() block for language detection. The preamble
+    is always English regardless of the question's language, so a short
+    Arabic question plus a filled-in profile reads as majority-Latin and
+    flips script-based detection to English — the answer and refusal would
+    come back in the wrong language precisely for users who bothered to
+    complete their profile. Kept next to as_preamble() so the two formats
+    can never drift apart silently."""
+    return _PROFILE_PREAMBLE.sub("", message)
 
 Severity = Literal["mild", "moderate", "severe", "unknown"]
 

@@ -12,10 +12,16 @@
 # codebase dials, and no response schema field can trigger a side effect
 # (SAF-9.4).
 
-# The deployment's locale. A wrong number here is worse than no number, so
-# the default is deliberately generic rather than guessing a country.
-default_locale: "generic"
+# The deployment's locale. This deployment targets Egypt: the فقراتي UI,
+# the care directory (data/care_directory.json), and every CTA already use
+# the Egyptian ambulance number 123, so the config matches them — a
+# generic "your local emergency number" next to buttons that dial 123
+# would be the inconsistency, not the safety.
+default_locale: "eg"
 
+# `*_ar` keys are Arabic display variants, selected when the question was
+# asked in Arabic; English is the fallback whenever a translation is
+# absent (a missing translation must never suppress an instruction).
 locales:
   generic:
     label: "your local emergency number"
@@ -24,8 +30,12 @@ locales:
       Call your local emergency number or go to the nearest emergency
       department immediately.
 
-  # Add real locales at deployment time. Kept as examples rather than
-  # activated, so nothing ships a number that is wrong for the user.
+  eg:
+    label: "123"
+    number: "123"
+    instruction: "Call 123 (ambulance) or go to the nearest emergency department immediately."
+    instruction_ar: "اتصل بالإسعاف على الرقم 123 أو توجه فورًا إلى أقرب قسم طوارئ."
+
   # us:
   #   label: "911"
   #   number: "911"
@@ -34,10 +44,6 @@ locales:
   #   label: "999"
   #   number: "999"
   #   instruction: "Call 999 or go to the nearest emergency department immediately."
-  # eg:
-  #   label: "123"
-  #   number: "123"
-  #   instruction: "Call 123 or go to the nearest emergency department immediately."
 
 # Copy used when a red flag fires. CRITICAL responses MUST lead with the
 # emergency instruction (SAF-6.3) — this is that lead text.
@@ -45,6 +51,14 @@ critical_lead: >
   Based on what you have described, this may be a medical emergency.
   Seek emergency care now — do not wait to see whether symptoms improve.
 
+critical_lead_ar: >
+  بناءً على ما وصفته، قد تكون هذه حالة طبية طارئة.
+  اطلب رعاية طارئة الآن — لا تنتظر لترى ما إذا كانت الأعراض ستتحسن.
+
 high_lead: >
   Based on what you have described, you should be assessed by a healthcare
   professional urgently, today if possible.
+
+high_lead_ar: >
+  بناءً على ما وصفته، ينبغي أن يقيّم حالتك مختص رعاية صحية بشكل عاجل،
+  اليوم إن أمكن.

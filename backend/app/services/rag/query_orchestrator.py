@@ -37,6 +37,7 @@ from app.prompts.domain_classifier import classify_domains
 from app.prompts.grounded_generator import generate_grounded_answer
 from app.prompts.query_rewriter import rewrite_query
 from app.prompts.symptom_extractor import extract_patient_state
+from app.schemas.query import strip_profile_preamble
 from app.services.rag.chunk_store import ChunkStore
 from app.services.rag.citation_resolver import ResolvedAnswer, resolve_and_validate
 from app.services.rag.evidence_pack import EvidencePack, build_evidence_pack
@@ -106,6 +107,7 @@ def _message_language(text: str) -> str:
     Mirrors the grounded generator's script detection but only needs the
     one distinction the fixed refusal strings actually have translations
     for — anything non-Arabic falls back to English rather than guessing."""
+    text = strip_profile_preamble(text)
     letters = [ch for ch in text if ch.isalpha()]
     if not letters:
         return "en"
@@ -260,7 +262,7 @@ def run_query(
     if detect_prescription_request(patient_message):
         trace.record("prescribing_check", {"prescription_request_detected": True, "action": "referral"})
         risk = assess_risk(patient_message, red_flags, "OUT_OF_SCOPE", 0)
-        decision = decide_actions(risk.urgency, "OUT_OF_SCOPE", 0, is_refusal=True)
+        decision = decide_actions(risk.urgency, "OUT_OF_SCOPE", 0, is_refusal=True, lang=msg_lang)
         return OrchestratorResult(
             request_id=request_id, status="refusal",
             supported_domain=False, domains=[], patient_state=None,
@@ -425,6 +427,7 @@ def run_query(
         )
         decision = decide_actions(
             risk.urgency, sufficiency.state.value, pack.support_count, is_refusal=is_refusal,
+            lang=msg_lang,
         )
         trace.record("risk", {
             "urgency": risk.urgency.value, "assessed_urgency": risk.assessed_urgency.value,
