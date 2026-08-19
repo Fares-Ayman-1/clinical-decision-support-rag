@@ -120,6 +120,7 @@ Backend (`.env`, compose `env_file`, or Space variables/secrets):
 | `RERANKER_TIMEOUT_SECONDS` | `3.0` (Space: `8.0`) | rerank wall-clock budget; blowing it falls back to RRF order, flagged in trace |
 | `SUFFICIENCY_TAU_LOW_RERANK` | `-3.60` | refusal threshold on rerank logits — **married to the reranker's logit scale**; recalibrate on any reranker swap |
 | `SUFFICIENCY_TAU_HIGH_RERANK` | `-0.39` | "confident" threshold (in-domain p60 policy) |
+| `SUFFICIENCY_CROSS_LINGUAL_MARGIN` | `3.0` | widens both rerank taus for mostly-non-Latin questions — the taus are English-fitted, and rewrite paraphrases / cross-lingual pairs score ~3 points lower for the same information need (measured: -3.40 EN vs -6.95 via Arabic rewrite) |
 | `QDRANT_URL` | `http://localhost:6333` | env-driven in all 6 call sites (was hardcoded — compose's `qdrant:6333` was silently ignored) |
 | `DATABASE_URL` | `sqlite:///./data/traces.db` | trace storage |
 | `SNAPSHOT_REPO` | `FatimahEmadEldin/cds-qdrant-snapshots` | dataset repo for index snapshots / vector caches |
