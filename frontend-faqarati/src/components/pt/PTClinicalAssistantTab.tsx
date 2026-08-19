@@ -80,6 +80,30 @@ interface PatientProfile {
 const EMPTY_PROFILE: PatientProfile = { age: "", sex: "", conditions: "", medications: "", allergies: "" };
 const PROFILE_KEY = "faqarati_clinical_profile";
 
+// Verified example prompts — each was run against the deployed pipeline
+// (2026-08-19) and returned a grounded SUFFICIENT/PARTIAL answer in the
+// question's own language, citing the WHO physio corpus (LBP guideline /
+// Rehab MSK module). Don't add examples here without live-verifying them
+// first: an example that refuses is worse than no example.
+const EXAMPLE_PROMPTS: Array<{ ar: string; en: string }> = [
+  {
+    ar: "ظهري يؤلمني ماذا افعل؟",
+    en: "My back hurts, what should I do?",
+  },
+  {
+    ar: "هل التمارين مفيدة لألم أسفل الظهر المزمن وما نوعها؟",
+    en: "Is exercise recommended for chronic low back pain and what kind?",
+  },
+  {
+    ar: "ما الذي تتضمنه إعادة التأهيل بعد كسر في العظام؟",
+    en: "What does rehabilitation involve after a bone fracture?",
+  },
+  {
+    ar: "كيف يساعد العلاج الطبيعي في خشونة الركبة؟",
+    en: "How can physiotherapy help with knee osteoarthritis?",
+  },
+];
+
 function loadProfile(): PatientProfile {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
@@ -290,8 +314,8 @@ export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalA
     return (payload.text ?? "").trim();
   }, []);
 
-  const ask = useCallback(async () => {
-    const question = draft.trim();
+  const askQuestion = useCallback(async (raw: string) => {
+    const question = raw.trim();
     if (!question || isLoading) return;
     setDraft("");
     setIsLoading(true);
@@ -321,7 +345,9 @@ export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalA
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  }, [draft, isLoading, t]);
+  }, [isLoading, t]);
+
+  const ask = useCallback(() => askQuestion(draft), [askQuestion, draft]);
 
   const toggleVoice = useCallback(async () => {
     setVoiceError("");
@@ -481,9 +507,28 @@ export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalA
           <div className="text-center py-10 text-slate-400">
             <BookOpenCheck className="w-10 h-10 mx-auto mb-3 text-brand-300" />
             <p className="font-bold text-slate-500">{t("اسأل سؤالاً سريرياً", "Ask a clinical question")}</p>
-            <p className="text-xs mt-1">
-              {t("مثال: ما أسباب آلام أسفل الظهر المزمنة؟", "e.g. What are the causes of chronic low back pain?")}
+            <p className="text-xs mt-1 mb-4">
+              {t("جرّب أحد الأمثلة — كل سؤال مُجرَّب ويُجيب من إرشادات منظمة الصحة العالمية", "Try an example — each one is verified to answer from WHO guidelines")}
             </p>
+            {/* Verified example prompts: every question below was tested
+                against the live pipeline and returns a grounded, correctly-
+                languaged answer. Click = send, in the current UI language. */}
+            <div className="flex flex-wrap justify-center gap-2 px-4">
+              {EXAMPLE_PROMPTS.map((p) => {
+                const q = t(p.ar, p.en);
+                return (
+                  <button
+                    key={p.en}
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => void askQuestion(q)}
+                    className="rounded-full border border-brand-200 bg-brand-50 px-3.5 py-1.5 text-xs font-semibold text-brand-700 transition-colors hover:border-brand-300 hover:bg-brand-100 disabled:opacity-50"
+                  >
+                    {q}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
