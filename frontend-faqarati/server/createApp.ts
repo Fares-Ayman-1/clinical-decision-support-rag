@@ -279,6 +279,105 @@ export function createApp(mode: AppMode = "production"): Express {
     }
   });
 
+  // ---- Tier 2: the full FitKG-CN specialist knowledge graph -------------
+  // The curated graph.json above stays the Einstein planner's actionable
+  // exercise set; fitkg_full.json is the complete bilingual knowledge graph
+  // (8,043 nodes / 13,510 edges) that backs the specialist tier — stats for
+  // the doctor dashboard and a node-explorer search that shows each node's
+  // muscle/anatomy connections.
+  type FitkgNode = {
+    id: string; label?: string; label_en?: string; label_zh?: string;
+    type?: string; type_en?: string; count?: string; display_label?: string;
+  };
+  type FitkgEdge = { source: string; target: string; type?: string; type_en?: string; weight?: string };
+  let fitkg: {
+    nodes: FitkgNode[]; edges: FitkgEdge[]; byId: Map<string, FitkgNode>;
+    adj: Map<string, FitkgEdge[]>; stats: Record<string, unknown>;
+  } | null = null;
+
+  async function loadFitkg() {
+    if (fitkg) return fitkg;
+    const raw = await fs.readFile(path.resolve(process.cwd(), "fitkg_full.json"), "utf-8");
+    const g = JSON.parse(raw) as { nodes: FitkgNode[]; edges: FitkgEdge[] };
+    const byId = new Map(g.nodes.map((n) => [n.id, n]));
+    const adj = new Map<string, FitkgEdge[]>();
+    const nodeTypes: Record<string, number> = {};
+    const edgeTypes: Record<string, number> = {};
+    for (const n of g.nodes) {
+      const t = n.type_en || n.type || "?";
+      nodeTypes[t] = (nodeTypes[t] || 0) + 1;
+    }
+    for (const e of g.edges) {
+      const t = e.type_en || e.type || "?";
+      edgeTypes[t] = (edgeTypes[t] || 0) + 1;
+      if (!adj.has(e.source)) adj.set(e.source, []);
+      if (!adj.has(e.target)) adj.set(e.target, []);
+      adj.get(e.source)!.push(e);
+      adj.get(e.target)!.push(e);
+    }
+    const anatomyTypes = new Set(["Anatomy", "Body part"]);
+    fitkg = {
+      nodes: g.nodes, edges: g.edges, byId, adj,
+      stats: {
+        node_count: g.nodes.length,
+        edge_count: g.edges.length,
+        node_types: nodeTypes,
+        edge_types: edgeTypes,
+        anatomy_nodes: g.nodes.filter((n) => anatomyTypes.has(n.type_en || "")).length,
+        exercise_nodes: nodeTypes["Exercise"] || 0,
+        trains_edges: edgeTypes["Trains"] || 0,
+        origin_insertion_edges: (edgeTypes["Origin"] || 0) + (edgeTypes["Insertion"] || 0),
+        bilingual_labels: g.nodes.filter((n) => n.label_en && n.label_zh).length,
+        source: "FitKG-CN",
+      },
+    };
+    return fitkg;
+  }
+
+  app.get("/api/fitkg/stats", async (_req, res) => {
+    try {
+      const kg = await loadFitkg();
+      res.json(kg.stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to load FitKG" });
+    }
+  });
+
+  app.get("/api/fitkg/search", async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim().toLowerCase();
+      if (!q) return res.status(400).json({ error: "q is required" });
+      const kg = await loadFitkg();
+      const hits = kg.nodes
+        .filter((n) =>
+          (n.label_en || "").toLowerCase().includes(q) ||
+          (n.label_zh || "").includes(q) ||
+          (n.label || "").toLowerCase().includes(q),
+        )
+        .slice(0, 12)
+        .map((n) => ({
+          id: n.id,
+          label_en: n.label_en || n.display_label || n.label,
+          label_zh: n.label_zh,
+          type: n.type_en || n.type,
+          mentions: Number(n.count || 0),
+          connections: (kg.adj.get(n.id) || []).slice(0, 12).map((e) => {
+            const otherId = e.source === n.id ? e.target : e.source;
+            const other = kg.byId.get(otherId);
+            return {
+              relation: e.type_en || e.type,
+              direction: e.source === n.id ? "out" : "in",
+              node: other?.label_en || other?.display_label || other?.label || otherId,
+              node_type: other?.type_en || other?.type,
+            };
+          }),
+        }));
+      res.json({ query: q, results: hits });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "FitKG search failed" });
+    }
+  });
+
   app.get("/api/admin/exercises", async (_req, res) => {
     try {
       const graph = await readGraph();

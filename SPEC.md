@@ -957,6 +957,18 @@ in [ARCHITECTURE.md](ARCHITECTURE.md) §23.
 | **FR-8.x** — three-panel UI | The shipped patient-facing UI is **فقراتي** (`frontend-faqarati/`, bilingual Arabic-first RTL) with the clinical assistant mounted on the landing page, patient portal, and doctor portal (full-screen). The three-panel workspace (`frontend/`) is retained as the clinical/diagnostic view |
 | §19 — local-only deployment | Additionally deployed publicly: HF Docker Space (nginx + FastAPI + Express + Qdrant in one container, snapshot-based ~1-min cold start), ZeroGPU Gradio Space, Railway project. See [ARCHITECTURE.md](ARCHITECTURE.md) §23.7, [DEPLOYMENT.md](DEPLOYMENT.md), [docs/RAILWAY-BRANCH-DEPLOY.md](docs/RAILWAY-BRANCH-DEPLOY.md) |
 
+## H.1b Two-tier knowledge system (v2.0 — implemented)
+
+The platform runs two labeled knowledge tiers ([ARCHITECTURE.md](ARCHITECTURE.md) §23.5b):
+
+| ID | Requirement |
+|---|---|
+| **TIER-1.1** | The public assistant MUST serve general, evidence-grounded guidance only, from the WHO/USPSTF corpus (9 documents, 8,542 chunks), and MUST display a Tier-1 badge naming its scope |
+| **TIER-2.1** | The specialist tier MUST be backed by the full FitKG-CN knowledge graph — 8,043 nodes / 13,510 edges, 100% bilingual labels — shipped in-repo (`frontend-faqarati/fitkg_full.json`) |
+| **TIER-2.2** | Every exercise recommendation surface MUST be able to show its anatomy wiring: 1,799 exercise→muscle "Trains" edges and 1,157 origin/insertion edges are queryable via `GET /api/fitkg/search` |
+| **TIER-2.3** | Graph statistics MUST be live, not hardcoded: the doctor dashboard reads `GET /api/fitkg/stats` (with the measured values as offline fallback) |
+| **TIER-2.4** | Tier 2 is a planning/display aid for licensed clinicians — it emits no autonomous clinical action (same SAF-6.6/6.7 posture as everything else) |
+
 ## H.2 New capabilities beyond v1.0 (all implemented and live)
 
 - **Full language parity** (B.11): Arabic questions get Arabic grounded answers, Arabic refusals,

@@ -128,7 +128,7 @@ COPY --from=faqarati /fq/dist /usr/share/nginx/html
 # The Express bundle plus the runtime-read data files (graphHelpers resolves
 # graph.json/search_index.json from CWD — start.sh runs node with cwd=/faq).
 COPY --from=faqarati /fq/server-bundle.cjs /faq/server-bundle.cjs
-COPY --from=faqarati /fq/graph.json /fq/search_index.json /faq/
+COPY --from=faqarati /fq/graph.json /fq/search_index.json /fq/fitkg_full.json /faq/
 COPY deploy/hf-space/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/hf-space/start.sh /usr/local/bin/start.sh
 COPY deploy/hf-space/index_persistence.py /usr/local/bin/index_persistence.py

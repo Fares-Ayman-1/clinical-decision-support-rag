@@ -501,6 +501,20 @@ export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalA
         )}
       </div>
 
+      {/* Knowledge-tier badge — this assistant is TIER 1 of the two-tier
+          knowledge system: public, evidence-grounded general guidance from
+          the WHO corpus. Tier 2 (the 8,043-node FitKG specialist graph)
+          lives in the doctor portal's Einstein planner. */}
+      <div className="flex items-center gap-2 rounded-xl bg-brand-50 border border-brand-100 px-3 py-1.5 text-[11px] font-semibold text-brand-700">
+        <span className="rounded-md bg-brand-600 text-white px-1.5 py-0.5 text-[10px] font-black">{t("المستوى ١", "TIER 1")}</span>
+        <span>
+          {t(
+            "إرشادات عامة موثقة للجمهور — ٩ مراجع WHO/USPSTF · 8,542 مقطع دليل · عربي/EN/FR",
+            "Public evidence-grounded guidance — 9 WHO/USPSTF guidelines · 8,542 evidence chunks · AR/EN/FR",
+          )}
+        </span>
+      </div>
+
       {/* Conversation — scrollable history, pinned to the newest turn */}
       <div className={`space-y-5 overflow-y-auto pe-1 ${fullScreen ? "flex-1 min-h-0" : "max-h-[62vh]"}`}>
         {turns.length === 0 && (

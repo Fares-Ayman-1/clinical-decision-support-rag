@@ -1283,6 +1283,23 @@ The faqarati Express server (`server/createApp.ts`, port 3000) serves the FitKG 
 the Einstein planner — both now call the **same Ollama provider** (`gpt-oss:20b`) as the RAG
 backend; the Gemini dependency was removed.
 
+### 23.5b Two-tier knowledge system — public RAG + specialist graph
+
+The platform deliberately runs **two knowledge tiers**, and the UI labels them:
+
+| | **Tier 1 — Public** (patients) | **Tier 2 — Specialist** (physiotherapists) |
+|---|---|---|
+| Knowledge store | WHO/USPSTF RAG corpus: **9 documents, 8,542 chunks** | **FitKG-CN** knowledge graph: **8,043 nodes, 13,510 edges**, fully bilingual (zh/en labels on 8,043/8,043 nodes) |
+| Content depth | General, evidence-grounded guidance — never a diagnosis, never a dose | Specialist detail: **900 exercises**, **1,826 anatomy nodes** (1,171 anatomical structures + 655 body parts), 1,618 training goals, 658 equipment items, 234 nutrients |
+| Anatomy wiring | Section/page citations | **1,799 "Trains" edges** wiring exercises/goals to the muscles they target (1,795 touch anatomy nodes; 727 distinct sources) + **1,157 muscle origin/insertion edges** |
+| Where it surfaces | Clinical assistant — landing page, patient portal, doctor tab (Tier-1 badge) | Doctor portal's Einstein planner pane: Tier-2 badge, live graph stats, and a node explorer (`/api/fitkg/stats`, `/api/fitkg/search`) |
+| Grounding rule | Cites WHO document/section/page | Walks **named graph paths** (exercise → muscle → goal), each relation typed |
+| Safety posture | Sufficiency gate, refusal, dose scan (§23.4) | Display + planning aid for a licensed clinician; boolean/display output only |
+
+The curated 13-node `graph.json` remains the Einstein planner's *actionable* exercise set
+(sets/reps/KIMORE thresholds per node); `fitkg_full.json` is the full graph behind it. Avg node
+degree 3.36, max 146.
+
 ### 23.6 API surface — as-built
 
 The four §15.1 endpoints, plus:
@@ -1291,6 +1308,8 @@ The four §15.1 endpoints, plus:
 |---|---|---|
 | `POST` | `/api/transcribe` | Raw audio body → Groq `whisper-large-v3` (OpenAI-compatible endpoint). 15 MB cap, content-type→extension map, `503 STT_UNCONFIGURED` without a key |
 | `GET` | `/api/care-directory` | Curated Egypt care directory (`data/care_directory.json`): 4 national hotlines + 10 hospitals/physio centers with Google Maps search links; `city`/`specialty` filters. Demo data — verify before real-care use |
+| `GET` | `/api/fitkg/stats` | Tier-2 graph statistics (node/edge counts, per-type/per-relation breakdowns, anatomy-link counts) computed from `fitkg_full.json` (§23.5b) |
+| `GET` | `/api/fitkg/search?q=` | Tier-2 node explorer: bilingual label search returning each hit's typed connections (relation → neighbor) — the "this exercise trains these muscles" view |
 
 `GET /api/eval/report` from §15.1 is **not built** (needs a persisted latest-run concept);
 `options.stream` is accepted but streaming is not wired. Both are recorded honestly in code

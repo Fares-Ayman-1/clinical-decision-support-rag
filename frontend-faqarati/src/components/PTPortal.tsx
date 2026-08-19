@@ -257,6 +257,45 @@ export default function PTPortal({ currentDoctor, initialTab = "copilot_workspac
   const [isEinsteinLoading, setIsEinsteinLoading] = useState(false);
   const [einsteinError, setEinsteinError] = useState<string | null>(null);
 
+  // Tier-2 knowledge-graph stats for the specialist badge. Fetched live
+  // from /api/fitkg/stats (the full FitKG-CN graph shipped with the app);
+  // the fallback numbers are the measured values of the committed graph so
+  // the badge is never blank.
+  const [fitkgStats, setFitkgStats] = useState({
+    node_count: 8043,
+    edge_count: 13510,
+    trains_edges: 1799,
+    origin_insertion_edges: 1157,
+    anatomy_nodes: 1826,
+    exercise_nodes: 900,
+  });
+  const [kgQuery, setKgQuery] = useState("");
+  const [kgResults, setKgResults] = useState<Array<{
+    label_en?: string; label_zh?: string; type?: string;
+    connections: Array<{ relation?: string; node?: string; node_type?: string }>;
+  }>>([]);
+  const [kgSearching, setKgSearching] = useState(false);
+  useEffect(() => {
+    fetch("/api/fitkg/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => { if (s?.node_count) setFitkgStats((prev) => ({ ...prev, ...s })); })
+      .catch(() => { /* fallback numbers stay */ });
+  }, []);
+  const searchFitkg = async () => {
+    const q = kgQuery.trim();
+    if (!q || kgSearching) return;
+    setKgSearching(true);
+    try {
+      const r = await fetch(`/api/fitkg/search?q=${encodeURIComponent(q)}`);
+      const data = await r.json();
+      setKgResults(data.results || []);
+    } catch {
+      setKgResults([]);
+    } finally {
+      setKgSearching(false);
+    }
+  };
+
   // Scroll ref for chat feed
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -1091,7 +1130,71 @@ How would you like to customize today's movement plan for this patient? Send you
 
             {/* RIGHT PANEL: EINSTEIN AI COPILOT CHAT INTERFACE: Width 35% (lg:col-span-4) */}
             <div id="einstein-copilot-pane" className="lg:col-span-4 space-y-4">
-              
+
+              {/* TIER 2 — specialist knowledge graph badge + explorer.
+                  Numbers come live from /api/fitkg/stats (FitKG-CN full
+                  graph); every exercise here is wired to the muscles and
+                  anatomy it targets. */}
+              <div className="bg-slate-900 text-white rounded-3xl border border-slate-800 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md bg-brand-500 text-slate-950 px-1.5 py-0.5 text-[10px] font-black">{t("المستوى ٢", "TIER 2")}</span>
+                  <span className="text-[11px] font-bold text-brand-300">
+                    {t("تخصصي للأخصائي — شبكة FitKG المعرفية", "Specialist — FitKG knowledge graph")}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    [fitkgStats.node_count.toLocaleString(), t("عقدة معرفية", "graph nodes")],
+                    [fitkgStats.edge_count.toLocaleString(), t("علاقة", "relations")],
+                    [fitkgStats.exercise_nodes.toLocaleString(), t("تمرين", "exercises")],
+                    [fitkgStats.anatomy_nodes.toLocaleString(), t("بنية تشريحية", "anatomy nodes")],
+                    [fitkgStats.trains_edges.toLocaleString(), t("رابط تمرين→عضلة", "exercise→muscle")],
+                    [fitkgStats.origin_insertion_edges.toLocaleString(), t("منشأ/مغرز عضلي", "origin/insertion")],
+                  ].map(([n, label]) => (
+                    <div key={String(label)} className="rounded-xl bg-slate-800/70 px-1 py-2">
+                      <div className="text-sm font-black text-brand-300">{n}</div>
+                      <div className="text-[9px] text-slate-400 font-bold leading-tight">{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={kgQuery}
+                    onChange={(e) => setKgQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") void searchFitkg(); }}
+                    placeholder={t("ابحث في الشبكة: squat، ظهر، biceps…", "Explore the graph: squat, back, biceps…")}
+                    className="flex-1 rounded-xl bg-slate-800 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-brand-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void searchFitkg()}
+                    disabled={kgSearching}
+                    className="rounded-xl bg-brand-500 text-slate-950 px-3 py-1.5 text-xs font-black disabled:opacity-50"
+                  >
+                    {kgSearching ? "…" : t("بحث", "Search")}
+                  </button>
+                </div>
+                {kgResults.length > 0 && (
+                  <div className="max-h-44 overflow-y-auto space-y-2 pe-1">
+                    {kgResults.slice(0, 5).map((r, i) => (
+                      <div key={i} className="rounded-xl bg-slate-800/60 p-2">
+                        <div className="text-[11px] font-bold text-slate-100">
+                          {r.label_en} {r.label_zh ? <span className="text-slate-400 font-normal">· {r.label_zh}</span> : null}
+                          <span className="ms-1 text-[9px] text-brand-300">({r.type})</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {r.connections.slice(0, 6).map((c, j) => (
+                            <span key={j} className="rounded-md bg-slate-700/70 px-1.5 py-0.5 text-[9px] text-slate-300">
+                              {c.relation} → {c.node}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="bg-slate-900 text-white rounded-3xl border border-slate-800 shadow-2xl flex flex-col h-[740px] overflow-hidden relative">
                 
                 {/* Chat Panel Header */}

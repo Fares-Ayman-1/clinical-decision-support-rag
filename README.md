@@ -1,8 +1,15 @@
-# Clinical Decision Support RAG
+# Clinical Decision Support RAG — فقراتي (Faqarati)
 
-Evidence-grounded clinical question answering over a frozen corpus of seven WHO/national
-guideline documents (7,381 chunks). Every generated statement cites retrieved guideline
-text; when evidence is insufficient, the system **refuses instead of guessing**.
+Evidence-grounded clinical question answering with a **two-tier knowledge system**:
+
+- **Tier 1 — public**: a trilingual (ar/en/fr) assistant over a frozen corpus of **nine
+  WHO/USPSTF guideline documents (8,542 section-aware chunks)**. Every generated statement
+  cites retrieved guideline text; when evidence is insufficient, the system **refuses
+  instead of guessing**.
+- **Tier 2 — specialist**: the doctor portal's exercise planner runs on the full
+  **FitKG-CN knowledge graph — 8,043 nodes / 13,510 edges** (900 exercises, 1,826 anatomy
+  nodes, 1,799 exercise→muscle "Trains" links, 1,157 muscle origin/insertion edges, 100%
+  bilingual zh/en labels), explorable live via `/api/fitkg/stats` and `/api/fitkg/search`.
 
 > ⚠️ **Not a medical device.** Research/hackathon prototype. Red-flag rules are not
 > clinician-reviewed. Never use for real patient care.
