@@ -273,6 +273,10 @@ _RECOMMENDED_ACTION_COPY = {
             "Review the evidence-grounded assessment below. If symptoms are severe or "
             "rapidly worsening, seek professional medical evaluation."
         ),
+        "fr": (
+            "Consultez l'évaluation fondée sur les preuves ci-dessous. Si les symptômes "
+            "sont sévères ou s'aggravent rapidement, consultez un professionnel de santé."
+        ),
         "ar": (
             "راجع التقييم المستند إلى الأدلة أدناه. إذا كانت الأعراض شديدة أو تتفاقم "
             "بسرعة، فاطلب تقييمًا طبيًا متخصصًا."
@@ -284,6 +288,11 @@ _RECOMMENDED_ACTION_COPY = {
             " please share more detail, or speak to a healthcare professional if you are"
             " concerned."
         ),
+        "fr": (
+            " Les preuves disponibles sont limitées — ce n'est donc pas un bilan de santé "
+            "rassurant. Donnez plus de détails, ou parlez-en à un professionnel de santé "
+            "si vous êtes inquiet."
+        ),
         "ar": (
             " الأدلة المتاحة محدودة، لذا هذا ليس تأكيدًا لسلامتك — يُرجى مشاركة مزيد من "
             "التفاصيل، أو التحدث مع مختص رعاية صحية إذا كنت قلقًا."
@@ -293,6 +302,10 @@ _RECOMMENDED_ACTION_COPY = {
         "en": (
             "Based on the available evidence, you should be assessed by a healthcare "
             "professional. If symptoms worsen, seek care sooner."
+        ),
+        "fr": (
+            "Au vu des preuves disponibles, vous devriez être évalué par un professionnel "
+            "de santé. Si les symptômes s'aggravent, consultez plus tôt."
         ),
         "ar": (
             "بناءً على الأدلة المتاحة، ينبغي أن يقيّم حالتك مختص رعاية صحية. إذا "

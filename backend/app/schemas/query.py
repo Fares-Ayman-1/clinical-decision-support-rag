@@ -21,6 +21,42 @@ from pydantic import BaseModel, Field
 
 _PROFILE_PREAMBLE = re.compile(r"\n*\[Patient profile:[^\]]*\]\s*$")
 
+_ARABIC_CHARS = re.compile("[؀-ۿݐ-ݿࢠ-ࣿ]")
+_FRENCH_DIACRITICS = set("àâçéèêëîïôùûüœÀÂÇÉÈÊËÎÏÔÙÛÜŒ")
+# High-frequency French function/medical words that are rare in English
+# prose. Detection requires TWO distinct hits (or one plus a French
+# diacritic) so a stray loanword in an English question cannot flip it.
+_FRENCH_WORDS = frozenset(
+    "le la les un une des du de et est que qui quoi pourquoi comment avec pour "
+    "mon ma mes je j'ai dois faire mal douleur dos au aux quels quelles quel "
+    "quelle exercices traitement santé médecin genou colonne vertébrale après "
+    "fracture arthrose lombaire kinésithérapie rééducation".split()
+)
+
+
+def detect_language(text: str) -> str:
+    """'ar', 'fr', or 'en' — the three languages this deployment localizes.
+
+    Arabic is decided by script. French shares the Latin script with
+    English, so it is decided by lexical markers: ≥2 distinct French
+    function/medical words, or 1 word plus a French diacritic. Anything
+    else falls back to 'en' — the safe default, since every localized
+    string has an English value. The always-English profile preamble is
+    stripped first (it would otherwise flip short non-English questions to
+    'en' for exactly the users who filled in their profile)."""
+    text = strip_profile_preamble(text)
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return "en"
+    if sum(1 for ch in letters if _ARABIC_CHARS.match(ch)) / len(letters) > 0.5:
+        return "ar"
+    words = {w.strip(".,;:!?()\"'").lower() for w in text.split()}
+    french_hits = len(words & _FRENCH_WORDS)
+    has_diacritic = any(ch in _FRENCH_DIACRITICS for ch in text)
+    if french_hits >= 2 or (french_hits >= 1 and has_diacritic):
+        return "fr"
+    return "en"
+
 
 def strip_profile_preamble(message: str) -> str:
     """Removes the as_preamble() block for language detection. The preamble

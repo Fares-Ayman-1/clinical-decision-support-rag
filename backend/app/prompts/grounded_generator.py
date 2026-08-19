@@ -78,6 +78,15 @@ def _answer_language(patient_query: str) -> str | None:
     if not letters:
         return None
     if not counts:
+        # Latin script covers both English AND French — a script test alone
+        # cannot separate them, so French is decided lexically by the shared
+        # detector (diacritics + high-frequency French words). Before this,
+        # a French question was confidently named "English" and answered in
+        # English.
+        from app.schemas.query import detect_language
+
+        if detect_language(patient_query) == "fr":
+            return "French"
         # Symmetric, deliberately: English is NAMED too, not left as the
         # implicit default. Measured in production that an unnamed default
         # occasionally drifts (English question answered with mixed-language
@@ -115,11 +124,14 @@ def generate_grounded_answer(
             '"text" in English.'
         )
     else:
-        # Native-script reinforcement for Arabic: an instruction written in
-        # the target language itself is the strongest signal a small model
+        # Native-language reinforcement: an instruction written in the
+        # target language itself is the strongest signal a small model
         # gets — the English-only phrasing was followed for pure-Arabic
         # prompts but ignored once English context diluted the prompt.
-        reinforce = " اكتب جميع العبارات باللغة العربية فقط." if language == "Arabic" else ""
+        reinforce = {
+            "Arabic": " اكتب جميع العبارات باللغة العربية فقط.",
+            "French": " Rédigez toutes les phrases uniquement en français.",
+        }.get(language, "")
         language_note = (
             f"\n\nIMPORTANT: The patient asked in {language}. Every statement's \"text\" MUST "
             f"be written in {language}, never in English, even though the evidence and patient "

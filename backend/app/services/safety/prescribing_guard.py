@@ -224,6 +224,14 @@ DOSE_BLOCKED_MESSAGE = (
 # existing imports and tests are untouched.
 PRESCRIBING_REFERRAL_MESSAGES: dict[str, str] = {
     "en": PRESCRIBING_REFERRAL_MESSAGE,
+    "fr": (
+        "Je ne peux pas recommander de médicaments, de doses ni de durées de "
+        "traitement — cette décision relève d'un professionnel de santé qualifié qui "
+        "peut vous examiner et connaît vos antécédents, vos allergies et vos "
+        "traitements en cours. Parlez-en à un médecin, un pharmacien ou un "
+        "infirmier. Si vos symptômes sont sévères ou s'aggravent rapidement, "
+        "consultez en urgence."
+    ),
     "ar": (
         "لا يمكنني التوصية بأدوية أو جرعات أو مدة علاج — هذا القرار يحتاج إلى "
         "مختص رعاية صحية مؤهل يفحصك ويعرف تاريخك الطبي وحساسياتك وأدويتك الحالية. "
@@ -234,6 +242,13 @@ PRESCRIBING_REFERRAL_MESSAGES: dict[str, str] = {
 
 DOSE_BLOCKED_MESSAGES: dict[str, str] = {
     "en": DOSE_BLOCKED_MESSAGE,
+    "fr": (
+        "J'ai trouvé des recommandations pertinentes dans la base de connaissances "
+        "médicale, mais elles contiennent des informations de posologie que je ne "
+        "peux pas transmettre. Les décisions concernant les médicaments et les "
+        "doses doivent venir d'un professionnel de santé qualifié qui peut vous "
+        "évaluer directement. Veuillez consulter un médecin ou un pharmacien."
+    ),
     "ar": (
         "وجدتُ إرشادات ذات صلة في قاعدة المعرفة الطبية، لكنها تتضمن معلومات جرعات "
         "دوائية محددة لا يمكنني تمريرها. قرارات الأدوية والجرعات يجب أن تصدر عن "

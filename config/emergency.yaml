@@ -35,6 +35,7 @@ locales:
     number: "123"
     instruction: "Call 123 (ambulance) or go to the nearest emergency department immediately."
     instruction_ar: "اتصل بالإسعاف على الرقم 123 أو توجه فورًا إلى أقرب قسم طوارئ."
+    instruction_fr: "Appelez le 123 (ambulance) ou rendez-vous immédiatement aux urgences les plus proches."
 
   # us:
   #   label: "911"
@@ -62,3 +63,12 @@ high_lead: >
 high_lead_ar: >
   بناءً على ما وصفته، ينبغي أن يقيّم حالتك مختص رعاية صحية بشكل عاجل،
   اليوم إن أمكن.
+
+critical_lead_fr: >
+  D'après ce que vous décrivez, il peut s'agir d'une urgence médicale.
+  Consultez en urgence maintenant — n'attendez pas de voir si les
+  symptômes s'améliorent.
+
+high_lead_fr: >
+  D'après ce que vous décrivez, vous devriez être évalué par un
+  professionnel de santé en urgence, aujourd'hui si possible.

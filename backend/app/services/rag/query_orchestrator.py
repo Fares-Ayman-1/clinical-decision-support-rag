@@ -37,7 +37,7 @@ from app.prompts.domain_classifier import classify_domains
 from app.prompts.grounded_generator import generate_grounded_answer
 from app.prompts.query_rewriter import rewrite_query
 from app.prompts.symptom_extractor import extract_patient_state
-from app.schemas.query import strip_profile_preamble
+from app.schemas.query import detect_language, strip_profile_preamble
 from app.services.rag.chunk_store import ChunkStore
 from app.services.rag.citation_resolver import ResolvedAnswer, resolve_and_validate
 from app.services.rag.evidence_pack import EvidencePack, build_evidence_pack
@@ -76,6 +76,12 @@ REFUSAL_REASON_CODES = {
 # this, an Arabic question gets an English refusal (observed live).
 REFUSAL_MESSAGES = {
     SufficiencyState.INSUFFICIENT: {
+        "fr": (
+            "Je ne dispose pas de preuves suffisantes dans la base de connaissances "
+            "médicale approuvée pour répondre à cette question de manière fiable. Si vos "
+            "symptômes sont sévères, s'aggravent rapidement ou si vous craignez une "
+            "urgence, consultez un professionnel de santé."
+        ),
         "en": (
             "I do not have sufficient evidence in the approved medical knowledge base to answer this "
             "reliably. If your symptoms are severe, rapidly worsening, or you are concerned about an "
@@ -88,6 +94,11 @@ REFUSAL_MESSAGES = {
         ),
     },
     SufficiencyState.OUT_OF_SCOPE: {
+        "fr": (
+            "Cette question sort du cadre des sujets médicaux couverts par la base de "
+            "connaissances de ce système. Veuillez consulter un professionnel de santé "
+            "ou une ressource appropriée."
+        ),
         "en": (
             "This question is outside the medical topics covered by this system's knowledge base. "
             "Please consult a healthcare professional or an appropriate resource for this question."
@@ -99,20 +110,11 @@ REFUSAL_MESSAGES = {
     },
 }
 
-_ARABIC_CHARS = re.compile("[؀-ۿݐ-ݿࢠ-ࣿ]")
-
-
 def _message_language(text: str) -> str:
-    """'ar' when the question is written mostly in Arabic script, else 'en'.
-    Mirrors the grounded generator's script detection but only needs the
-    one distinction the fixed refusal strings actually have translations
-    for — anything non-Arabic falls back to English rather than guessing."""
-    text = strip_profile_preamble(text)
-    letters = [ch for ch in text if ch.isalpha()]
-    if not letters:
-        return "en"
-    arabic = sum(1 for ch in letters if _ARABIC_CHARS.match(ch))
-    return "ar" if arabic / len(letters) > 0.5 else "en"
+    """'ar', 'fr', or 'en' — delegated to the shared detector so the
+    orchestrator, the generator, and the API layer can never disagree
+    about what language the user asked in."""
+    return detect_language(text)
 
 
 # Front-matter chunks — copyright pages, forewords, tables of contents —
@@ -218,12 +220,13 @@ def _is_non_latin_query(patient_message: str) -> bool:
 
 def _select_rerank_query(patient_message: str, english_variants: list[str]) -> str:
     """English questions keep the original — the sufficiency-gate thresholds
-    were fitted on exactly that population. A mostly-non-Latin question falls
-    back to its first English rewrite so the English-only cross-encoder scores
-    a pair it can actually judge."""
+    were fitted on exactly that population. Any detected non-English question
+    (Arabic by script, French by lexicon — French shares the Latin script so
+    a script test alone misses it) falls back to its first English rewrite so
+    the cross-encoder can also be judged on a native-English pairing."""
     if not english_variants:
         return patient_message
-    if not _is_non_latin_query(patient_message):
+    if not _is_non_latin_query(patient_message) and detect_language(patient_message) == "en":
         return patient_message
     return english_variants[0]
 
@@ -274,7 +277,7 @@ def run_query(
             request_id=request_id, status="refusal",
             supported_domain=False, domains=[], patient_state=None,
             resolved_answer=None, refusal_reason="PRESCRIBING_REQUEST",
-            refusal_message=PRESCRIBING_REFERRAL_MESSAGES[msg_lang],
+            refusal_message=PRESCRIBING_REFERRAL_MESSAGES.get(msg_lang, PRESCRIBING_REFERRAL_MESSAGES["en"]),
             pack=None, sufficiency=None, retrieval=None,
             latency_ms=(time.perf_counter() - t0) * 1000,
             trace=trace.as_dict() if include_trace else {},
@@ -417,7 +420,7 @@ def run_query(
     )
     pack = build_evidence_pack(pipeline_result, chunk_store, rewritten_queries=queries[1:])
 
-    cross_lingual = _is_non_latin_query(patient_message)
+    cross_lingual = _is_non_latin_query(patient_message) or msg_lang != "en"
     sufficiency = evaluate_sufficiency(pack, cross_lingual=cross_lingual)
     trace.record("sufficiency", {"state": sufficiency.state.value, "signal_used": sufficiency.signal_used, "top_score": sufficiency.top_score, "tau_high": sufficiency.tau_high, "tau_low": sufficiency.tau_low, "cross_lingual_margin_applied": cross_lingual})
     supported_domain = bool(predicted_domains)
@@ -457,7 +460,7 @@ def run_query(
             request_id=request_id, status="refusal", supported_domain=supported_domain,
             domains=predicted_domains, patient_state=patient_state.model_dump(),
             resolved_answer=None, refusal_reason=REFUSAL_REASON_CODES[sufficiency.state],
-            refusal_message=REFUSAL_MESSAGES[sufficiency.state][msg_lang], pack=pack,
+            refusal_message=REFUSAL_MESSAGES[sufficiency.state].get(msg_lang, REFUSAL_MESSAGES[sufficiency.state]["en"]), pack=pack,
             sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
             trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
         )
@@ -473,7 +476,7 @@ def run_query(
             request_id=request_id, status="refusal", supported_domain=supported_domain,
             domains=predicted_domains, patient_state=patient_state.model_dump(),
             resolved_answer=None, refusal_reason="INSUFFICIENT_EVIDENCE",
-            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT][msg_lang], pack=pack,
+            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT].get(msg_lang, REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT]["en"]), pack=pack,
             sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
             trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
         )
@@ -488,7 +491,7 @@ def run_query(
             request_id=request_id, status="refusal", supported_domain=supported_domain,
             domains=predicted_domains, patient_state=patient_state.model_dump(),
             resolved_answer=resolved, refusal_reason="INSUFFICIENT_EVIDENCE",
-            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT][msg_lang], pack=pack,
+            refusal_message=REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT].get(msg_lang, REFUSAL_MESSAGES[SufficiencyState.INSUFFICIENT]["en"]), pack=pack,
             sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
             trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
         )
@@ -526,7 +529,7 @@ def run_query(
             request_id=request_id, status="refusal", supported_domain=supported_domain,
             domains=predicted_domains, patient_state=patient_state.model_dump(),
             resolved_answer=None, refusal_reason="PRESCRIBING_REQUEST",
-            refusal_message=DOSE_BLOCKED_MESSAGES[msg_lang], pack=pack,
+            refusal_message=DOSE_BLOCKED_MESSAGES.get(msg_lang, DOSE_BLOCKED_MESSAGES["en"]), pack=pack,
             sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
             trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
             dose_block=dose_scan,

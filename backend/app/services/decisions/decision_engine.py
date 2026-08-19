@@ -42,6 +42,10 @@ LOW_RISK_FIXED_COPY = (
 # a reviewed translation of the fixed English, not a paraphrase).
 LOW_RISK_FIXED_COPY_BY_LANG = {
     "en": LOW_RISK_FIXED_COPY,
+    "fr": (
+        "Aucun signe d'alerte urgent n'a été identifié à partir des informations "
+        "et des preuves actuellement disponibles."
+    ),
     "ar": (
         "لم يتم رصد علامات إنذار عاجلة من المعلومات والأدلة المتاحة حاليًا."
     ),
