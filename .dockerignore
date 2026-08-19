@@ -56,6 +56,8 @@ frontend/test-results/
 data/**
 !data/chunk_store/medical_chunks.jsonl
 !data/chunks/benchmark/1.0_S1.jsonl
+# The care directory backs the CTA buttons (GET /api/care-directory).
+!data/care_directory.json
 
 # Logs
 *.log
