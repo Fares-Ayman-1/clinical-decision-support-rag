@@ -91,18 +91,46 @@ def _answer_language(patient_query: str) -> str | None:
 def generate_grounded_answer(
     provider: LLMProvider, patient_query: str, pack: EvidencePack
 ) -> GroundedGeneration:
-    evidence_block = format_evidence_for_prompt(pack)
-    language = _answer_language(patient_query)
-    language_note = (
-        f"\n\nIMPORTANT: The patient asked in {language}. Write every statement's \"text\" in "
-        f"{language}. Citation ids (E1, E2) and verbatim quotes stay in English."
-        if language
-        else ""
-    )
-    user_prompt = f"""<patient_question>
-{patient_query}
-</patient_question>
+    from app.schemas.query import strip_profile_preamble
 
+    evidence_block = format_evidence_for_prompt(pack)
+
+    # The profile preamble is English regardless of the question's language.
+    # Leaving it inside <patient_question> drowned the question's script:
+    # verified live, an Arabic question WITH a filled-in profile was answered
+    # in English while the same question without one was answered in Arabic —
+    # the model read a mixed-language question block plus an all-English
+    # evidence block and followed the majority. The profile gets its own tag
+    # so the question block carries only the patient's own words.
+    question = strip_profile_preamble(patient_query)
+    profile = patient_query[len(question):].strip()
+    profile_block = f"\n<patient_profile>\n{profile}\n</patient_profile>\n" if profile else ""
+
+    language = _answer_language(patient_query)
+    if language is None:
+        language_note = ""
+    elif language == "English":
+        language_note = (
+            "\n\nIMPORTANT: The patient asked in English. Write every statement's "
+            '"text" in English.'
+        )
+    else:
+        # Native-script reinforcement for Arabic: an instruction written in
+        # the target language itself is the strongest signal a small model
+        # gets — the English-only phrasing was followed for pure-Arabic
+        # prompts but ignored once English context diluted the prompt.
+        reinforce = " اكتب جميع العبارات باللغة العربية فقط." if language == "Arabic" else ""
+        language_note = (
+            f"\n\nIMPORTANT: The patient asked in {language}. Every statement's \"text\" MUST "
+            f"be written in {language}, never in English, even though the evidence and patient "
+            f"profile above are in English.{reinforce} Citation ids (E1, E2) and verbatim "
+            f"quotes stay in English."
+        )
+
+    user_prompt = f"""<patient_question>
+{question}
+</patient_question>
+{profile_block}
 {evidence_block}
 
 Answer the patient's question using only the evidence above.{language_note}"""
