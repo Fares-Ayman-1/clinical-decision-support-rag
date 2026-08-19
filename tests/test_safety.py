@@ -208,6 +208,39 @@ def test_clinical_prose_without_dosing_is_not_blocked(text):
     assert not scan_for_dose_patterns({"statement[1]": text}).blocked
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Exercise-prescription grammar from the physio corpus (WHO LBP
+        # guideline / Rehab MSK module) — shares frequency/duration/unit
+        # shapes with drug dosing but contains no medication, so it must
+        # NOT block. Before the hard/contextual split, every one of these
+        # tripped the scan and the guard refused nearly all physio answers.
+        "Perform strengthening exercises twice daily for 8 weeks.",
+        "Chronic primary low back pain is pain persisting for 3 months or more.",
+        "Avoid lifting loads heavier than 10 kg during the acute phase.",
+        "Walk for 30 minutes, 5 times per week, and stretch once a day.",
+        "Needling therapies showed little effect over durations up to 15 years.",
+    ],
+)
+def test_exercise_prescriptions_are_not_blocked(text):
+    assert not scan_for_dose_patterns({"statement[1]": text}).blocked
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The same grammar WITH a medication named must still block —
+        # the contextual patterns exist for exactly this case.
+        "NSAIDs may be taken twice daily for 5 days.",
+        "Continue the antibiotic for 7 days.",
+        "Ibuprofen once a day with food.",
+    ],
+)
+def test_medication_frequency_or_duration_still_blocks(text):
+    assert scan_for_dose_patterns({"statement[1]": text}).blocked
+
+
 def test_dose_scan_reports_where_the_match_was():
     """A block that cannot say what triggered it is undebuggable, and in a
     medical system an unexplainable refusal is its own failure."""

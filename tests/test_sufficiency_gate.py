@@ -152,5 +152,9 @@ def test_every_refusing_state_maps_to_a_valid_api_reason_code():
     for state in refusing_states:
         assert state in REFUSAL_REASON_CODES, f"{state} has no API reason code"
         assert state in REFUSAL_MESSAGES, f"{state} has no refusal message"
-        # Must construct without raising — this is exactly what 500'd.
-        RefusalOut(reason=REFUSAL_REASON_CODES[state], message=REFUSAL_MESSAGES[state])
+        # Messages are language-keyed ('en'/'ar') so refusals come back in
+        # the question's language. Every variant must construct without
+        # raising — this is exactly what 500'd.
+        for lang in ("en", "ar"):
+            assert lang in REFUSAL_MESSAGES[state], f"{state} missing {lang} message"
+            RefusalOut(reason=REFUSAL_REASON_CODES[state], message=REFUSAL_MESSAGES[state][lang])
