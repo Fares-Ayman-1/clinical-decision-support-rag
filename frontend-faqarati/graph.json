@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    { "id": "ext_spine_01", "type": "Exercise", "name_ar": "تمديد العمود الفقري", "name_en": "Lumbar Extension Stretch", "suggested_sets": 3, "suggested_reps": 10, "kimore_thresholds": { "min": 145, "max": 175 }, "target_muscle": "Lower Back Muscles" },
+    { "id": "cerv_flex_01", "type": "Exercise", "name_ar": "إطالة فقرات الرقبة الجانبية", "name_en": "Cervical Flexion Stretch", "suggested_sets": 3, "suggested_reps": 12, "kimore_thresholds": { "min": 65, "max": 85 }, "target_muscle": "Upper Trapezius" },
+    { "id": "knee_squat_01", "type": "Exercise", "name_ar": "القرفصاء لتأهيل خشونة الركبة", "name_en": "Rehab Squats for Knees", "suggested_sets": 3, "suggested_reps": 8, "kimore_thresholds": { "min": 85, "max": 105 }, "target_muscle": "Quadriceps" },
+    { "id": "shoulder_abd_01", "type": "Exercise", "name_ar": "تمرين تمدد الكتف والأذرع الجانبي", "name_en": "Shoulder Lateral Abduction", "suggested_sets": 3, "suggested_reps": 10, "kimore_thresholds": { "min": 80, "max": 100 }, "target_muscle": "Deltoid" },
+    
+    { "id": "m_lower_back", "type": "Muscle", "name_ar": "عضلات أسفل الظهر", "name_en": "Lower Back Muscles" },
+    { "id": "m_trapezius", "type": "Muscle", "name_ar": "العضلة شبه المنحرفة للرقبة", "name_en": "Upper Trapezius" },
+    { "id": "m_quadriceps", "type": "Muscle", "name_ar": "العضلة رباعية الرؤوس الفخذية", "name_en": "Quadriceps" },
+    { "id": "m_deltoids", "type": "Muscle", "name_ar": "العضلات الدالية للكتف", "name_en": "Deltoid" },
+    { "id": "m_glutes", "type": "Muscle", "name_ar": "عضلات الألياف الإليوية", "name_en": "Gluteal Muscles" },
+
+    { "id": "joint_l4_l5", "type": "Joint", "name_ar": "الفقرات القطنية L4-L5", "name_en": "L4-L5 Lumbar Spine" },
+    { "id": "joint_cervical", "type": "Joint", "name_ar": "الفقرات العنقية للصوت والرقبة", "name_en": "Cervical Vertebrae" },
+    { "id": "joint_knee", "type": "Joint", "name_ar": "مفصل الرضفة والركبة", "name_en": "Knee Joint" },
+    { "id": "joint_glenohumeral", "type": "Joint", "name_ar": "مفصل الكتف الكروي", "name_en": "Shoulder Joint" }
+  ],
+  "edges": [
+    { "source": "ext_spine_01", "target": "m_lower_back", "relation": "Targets" },
+    { "source": "cerv_flex_01", "target": "m_trapezius", "relation": "Targets" },
+    { "source": "knee_squat_01", "target": "m_quadriceps", "relation": "Targets" },
+    { "source": "shoulder_abd_01", "target": "m_deltoids", "relation": "Targets" },
+    
+    { "source": "m_lower_back", "target": "joint_l4_l5", "relation": "Stabilizes" },
+    { "source": "m_trapezius", "target": "joint_cervical", "relation": "Supports" },
+    { "source": "m_quadriceps", "target": "joint_knee", "relation": "Stabilizes" },
+    { "source": "m_deltoids", "target": "joint_glenohumeral", "relation": "Protects" },
+    { "source": "m_glutes", "target": "joint_l4_l5", "relation": "Stabilizes" }
+  ]
+}

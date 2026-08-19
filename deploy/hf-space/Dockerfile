@@ -8,25 +8,20 @@
 # Space exposes exactly one port. Qdrant and uvicorn therefore bind loopback
 # and nginx is the only public listener. See deploy/hf-space/start.sh.
 
-# --- Stage 1: React bundle -------------------------------------------------
-FROM node:22.17-alpine AS frontend
+# --- Stage 1: faqarati UI + its Express API bundle ---------------------------
+# The Space's web UI is the faqarati (فقراتي) physio platform imported at
+# frontend-faqarati/ — landing page, patient/PT portals, and the Clinical
+# Assistant tab that talks to the clinical API same-origin. Its own Express
+# API (schedules, exercises, Einstein/Gemini suggestions) is esbuild-bundled
+# to a single CJS file so the runtime needs a node BINARY but no node_modules.
+FROM node:22-bookworm-slim AS faqarati
 
-WORKDIR /fe
-
-# Absolute, not relative: api-transport.ts:78 (`normalizeBaseUrl`) throws a
-# TypeError on an empty base, so "" or "/" would break the app at runtime.
-# Same origin as the Space itself, so nginx proxies /api without CORS.
-ARG VITE_API_BASE_URL=https://fatimahemadeldin-clinical-decision-support-rag.hf.space
-ARG VITE_ENABLE_DEMO_MODE=true
-ARG VITE_EMERGENCY_NUMBER=123
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE} \
-    VITE_EMERGENCY_NUMBER=${VITE_EMERGENCY_NUMBER}
-
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --prefer-offline --no-audit --no-fund --maxsockets=4
-COPY frontend/ ./
-RUN npm run build
+WORKDIR /fq
+COPY frontend-faqarati/package.json ./
+# No lockfile in the faqarati tree — plain install, prod+dev (vite/esbuild).
+RUN npm install --no-audit --no-fund
+COPY frontend-faqarati/ ./
+RUN npx vite build  && npx esbuild server/prod.ts --bundle --platform=node --format=cjs       --outfile=server-bundle.cjs --external:fsevents
 
 # --- Stage 2: runtime ------------------------------------------------------
 FROM python:3.12-slim AS runtime
@@ -49,6 +44,11 @@ RUN apt-get update \
 # the official image rather than re-downloading a release tarball, so the
 # Space and local dev run byte-identical server versions.
 COPY --from=qdrant/qdrant:v1.12.5 /qdrant /qdrant
+
+# Node runtime for the faqarati Express API. Binary-only copy: the server is
+# a self-contained esbuild bundle, so no node_modules ships. Both images are
+# Debian bookworm, so the glibc-linked binary runs as-is.
+COPY --from=faqarati /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 
@@ -124,7 +124,11 @@ ENV PYTHONPATH=/app/backend
 # index is rebuilt on each cold start. start.sh skips the rebuild when a
 # populated collection is already present, so warm restarts stay fast.
 
-COPY --from=frontend /fe/dist /usr/share/nginx/html
+COPY --from=faqarati /fq/dist /usr/share/nginx/html
+# The Express bundle plus the runtime-read data files (graphHelpers resolves
+# graph.json/search_index.json from CWD — start.sh runs node with cwd=/faq).
+COPY --from=faqarati /fq/server-bundle.cjs /faq/server-bundle.cjs
+COPY --from=faqarati /fq/graph.json /fq/search_index.json /faq/
 COPY deploy/hf-space/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/hf-space/start.sh /usr/local/bin/start.sh
 COPY deploy/hf-space/index_persistence.py /usr/local/bin/index_persistence.py

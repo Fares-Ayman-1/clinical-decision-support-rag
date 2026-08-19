@@ -1,0 +1,24 @@
+services:
+  # One-off: refresh package-lock.json without installing Node on the host
+  deps:
+    image: node:24-alpine
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: npm install --package-lock-only
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+volumes:
+  node_modules:

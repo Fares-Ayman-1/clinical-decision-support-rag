@@ -1,0 +1,20 @@
+{
+  "keywords": {
+    "lower_back": ["ext_spine_01", "m_lower_back", "joint_l4_l5"],
+    "L4-L5": ["ext_spine_01", "m_lower_back", "joint_l4_l5"],
+    "l4-l5": ["ext_spine_01", "m_lower_back", "joint_l4_l5"],
+    "ظهر": ["ext_spine_01", "m_lower_back", "joint_l4_l5"],
+    "spinal": ["ext_spine_01", "m_lower_back", "joint_l4_l5"],
+    "neck": ["cerv_flex_01", "m_trapezius", "joint_cervical"],
+    "رقبة": ["cerv_flex_01", "m_trapezius", "joint_cervical"],
+    "trapezius": ["cerv_flex_01", "m_trapezius", "joint_cervical"],
+    "cervical": ["cerv_flex_01", "m_trapezius", "joint_cervical"],
+    "glutes": ["ext_spine_01", "m_glutes", "joint_l4_l5"],
+    "knee": ["knee_squat_01", "m_quadriceps", "joint_knee"],
+    "ركبة": ["knee_squat_01", "m_quadriceps", "joint_knee"],
+    "quadriceps": ["knee_squat_01", "m_quadriceps", "joint_knee"],
+    "shoulder": ["shoulder_abd_01", "m_deltoids", "joint_glenohumeral"],
+    "کتف": ["shoulder_abd_01", "m_deltoids", "joint_glenohumeral"],
+    "deltoid": ["shoulder_abd_01", "m_deltoids", "joint_glenohumeral"]
+  }
+}

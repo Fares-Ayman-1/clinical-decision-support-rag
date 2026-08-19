@@ -1,0 +1,6 @@
+{
+  "name": "MyPhysio",
+  "description": "معالجي (MyPhysio): منصة ريادية مرخصة للعلاج الطبيعي والتأهيل الحركي عن بعد مع مصحح المفاصل الذكي عبر الكاميرا والخصوصية التامة للمحافظة على فقراتك وصحتك الحركية.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

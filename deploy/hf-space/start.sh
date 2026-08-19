@@ -114,6 +114,14 @@ for i in $(seq 1 300); do
   sleep 1
 done
 
+# --- 3b. faqarati Express API ----------------------------------------------
+# Schedules/exercises/Einstein endpoints for the faqarati UI. esbuild bundle,
+# so the node BINARY is the only runtime dependency. cwd matters: graph.json
+# and search_index.json are resolved from the working directory.
+log "starting faqarati api on :3000"
+(cd /faq && node server-bundle.cjs >/tmp/faqarati.log 2>&1) &
+FAQ_PID=$!
+
 # --- 4. nginx (foreground) ------------------------------------------------
 log "starting nginx on :7860"
 exec nginx -g 'daemon off;'
