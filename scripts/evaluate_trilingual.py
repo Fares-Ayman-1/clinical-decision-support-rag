@@ -184,17 +184,21 @@ def judge(key: str, row: dict, statements: list[str], excerpts: list[str]) -> di
 
 # ----------------------------------------------------------------------- run
 
-def query_api(base_url: str, message: str, attempts: int = 2) -> dict:
+def query_api(base_url: str, message: str, attempts: int = 1) -> dict:
+    # One attempt with a 250s ceiling: the slow tail is real (measured 211s
+    # successes under load), so a tight timeout kills legitimate runs, and
+    # in-slice retries just double the loss — a failed row is not written,
+    # so the NEXT slice is the retry.
     last = None
     for i in range(attempts):
         try:
             return http_json(f"{base_url}/api/query",
                              {"message": message, "options": {"include_trace": True}},
                              {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
-                             timeout=280)
-        except Exception as e:  # noqa: BLE001 — cold-start flake: retry once
+                             timeout=250)
+        except Exception as e:  # noqa: BLE001
             last = e
-            time.sleep(10)
+            time.sleep(5)
     raise RuntimeError(f"query failed after {attempts} attempts: {last}")
 
 
@@ -242,10 +246,13 @@ def evaluate_row(row: dict, base_url: str, cmap: dict, key: str, use_judge: bool
             if row["lang"] != "fr" else out["answer_lang_detected"] in ("fr",)
         )
         out["answer_preview"] = statements[0][:160] if statements else ""
+        # Full texts are stored so judging can run as a SEPARATE resumable
+        # pass (--judge-pass) without re-querying the API.
+        out["statements_full"] = statements
+        out["excerpts_full"] = [e.get("excerpt") or "" for e in evidence if e.get("selected") and e.get("excerpt")]
         if use_judge and not row["expect_refusal"]:
-            excerpts = [e.get("excerpt") or "" for e in evidence if e.get("selected")]
             try:
-                out["judge"] = judge(key, row, statements, [x for x in excerpts if x])
+                out["judge"] = judge(key, row, statements, out["excerpts_full"])
             except Exception as e:  # noqa: BLE001 — judge failure must not lose the row
                 out["judge_error"] = f"{type(e).__name__}: {e}"[:200]
     return out
@@ -316,24 +323,71 @@ def main() -> None:
     ap.add_argument("--max-seconds", type=float, default=None,
                     help="exit cleanly after this budget; re-run to resume")
     ap.add_argument("--no-judge", action="store_true")
+    ap.add_argument("--judge-pass", action="store_true",
+                    help="judge already-collected results (writes judgments.jsonl; resumes)")
     ap.add_argument("--aggregate", action="store_true", help="only write summary.json")
     args = ap.parse_args()
 
     run_dir = ROOT / "data" / "evaluation" / "runs" / args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     results_path = run_dir / "results.jsonl"
+    judgments_path = run_dir / "judgments.jsonl"
 
     existing = []
     if results_path.exists():
         existing = [json.loads(l) for l in results_path.read_text(encoding="utf-8").splitlines() if l.strip()]
     done_ids = {r["query_id"] for r in existing}
 
+    def _merge_judgments(rows: list[dict]) -> list[dict]:
+        if not judgments_path.exists():
+            return rows
+        verdicts = {}
+        for line in judgments_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                j = json.loads(line)
+                verdicts[j["query_id"]] = j["judge"]
+        for r in rows:
+            if "judge" not in r and r["query_id"] in verdicts:
+                r["judge"] = verdicts[r["query_id"]]
+        return rows
+
     if args.aggregate:
-        summary = aggregate(existing)
+        summary = aggregate(_merge_judgments(existing))
         (run_dir / "summary.json").write_text(
             json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         print(json.dumps(summary["overall"], indent=2))
         print(f"summary.json written for {len(existing)} results")
+        return
+
+    if args.judge_pass:
+        # Judging runs as its own resumable pass so the (fast, local-network-
+        # sensitive) query collection and the (slow, Ollama-bound) judging can
+        # run in whichever execution context works for each.
+        rows_by_id = {r["query_id"]: r for r in _merge_judgments(existing)}
+        dataset = {json.loads(l)["query_id"]: json.loads(l)
+                   for l in DATASET.read_text(encoding="utf-8").splitlines() if l.strip()}
+        todo = [r for r in rows_by_id.values()
+                if r["status"] == "success" and not r["expect_refusal"] and "judge" not in r]
+        print(f"{len(todo)} results to judge", flush=True)
+        key = _env_key()
+        started = time.time()
+        with judgments_path.open("a", encoding="utf-8") as out:
+            for i, r in enumerate(todo):
+                if args.max_seconds and time.time() - started > args.max_seconds:
+                    print("time budget reached — re-run to resume", flush=True)
+                    return
+                row = dataset[r["query_id"]]
+                try:
+                    verdict = judge(key, row, r["statements_full"], r.get("excerpts_full", []))
+                    out.write(json.dumps({"query_id": r["query_id"], "judge": verdict},
+                                         ensure_ascii=False) + "\n")
+                    out.flush()
+                    print(f"[{i+1}/{len(todo)}] {r['query_id']}: faith={verdict['faithfulness']} "
+                          f"rel={verdict['relevance']} corr={verdict['correctness']} "
+                          f"lang_ok={verdict['language_ok']}", flush=True)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[{i+1}/{len(todo)}] {r['query_id']} JUDGE FAILED: {e}", flush=True)
+        print("judge pass complete", flush=True)
         return
 
     rows = [json.loads(l) for l in DATASET.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -358,8 +412,18 @@ def main() -> None:
                 if "judge" in result:
                     tag += f" faith={result['judge']['faithfulness']}"
                 print(f"[{len(done_ids)+i+1}/{len(rows)}] {row['query_id']}: {tag} ({result['wall_seconds']}s)", flush=True)
+                # Breather for the upstream LLM's burst budget: sustained
+                # back-to-back queries (4+ LLM calls each) degrade into
+                # 150s+ hangs, and a lost timeout costs far more than the
+                # pause that avoids it.
+                time.sleep(15)
             except Exception as e:  # noqa: BLE001 — one bad row must not kill the run
                 print(f"[{len(done_ids)+i+1}/{len(rows)}] {row['query_id']} FAILED: {e}", flush=True)
+                # A client timeout leaves the request running SERVER-side
+                # (single worker) — issuing the next query immediately just
+                # queues it behind that zombie and cascades into more
+                # timeouts. Wait roughly a pipeline's length for it to drain.
+                time.sleep(150)
     print("run complete — invoke with --aggregate to write summary.json", flush=True)
 
 
