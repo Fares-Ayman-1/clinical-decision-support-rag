@@ -18,7 +18,7 @@ WORKDIR /fe
 # Same origin as the Space itself, so nginx proxies /api without CORS.
 ARG VITE_API_BASE_URL=https://fatimahemadeldin-clinical-decision-support-rag.hf.space
 ARG VITE_ENABLE_DEMO_MODE=true
-ARG VITE_EMERGENCY_NUMBER=
+ARG VITE_EMERGENCY_NUMBER=123
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE} \
     VITE_EMERGENCY_NUMBER=${VITE_EMERGENCY_NUMBER}

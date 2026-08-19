@@ -68,11 +68,18 @@ def _answer_language(patient_query: str) -> str | None:
             if lo <= cp <= hi:
                 counts[name] = counts.get(name, 0) + 1
                 break
-    if not counts:
-        return None
-    name, count = max(counts.items(), key=lambda kv: kv[1])
     letters = sum(1 for c in patient_query if c.isalpha())
-    return name if letters and count / letters >= 0.5 else None
+    if not letters:
+        return None
+    if not counts:
+        # Symmetric, deliberately: English is NAMED too, not left as the
+        # implicit default. Measured in production that an unnamed default
+        # occasionally drifts (English question answered with mixed-language
+        # or mistargeted text when the evidence block dominates the prompt).
+        latin = sum(1 for c in patient_query if c.isalpha() and c.isascii())
+        return "English" if latin / letters >= 0.8 else None
+    name, count = max(counts.items(), key=lambda kv: kv[1])
+    return name if count / letters >= 0.5 else None
 
 
 def generate_grounded_answer(

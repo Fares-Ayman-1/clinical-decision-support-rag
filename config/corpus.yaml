@@ -99,3 +99,32 @@ documents:
     source_url: "https://doi.org/10.1001/jama.2022.10951"
     publication_year: 2022
     has_evidence_grades: true
+
+  # --- Physiotherapy / musculoskeletal expansion (2026-08-19) ---------------
+  # Corpus pivot toward the physio (فقراتي) platform: rehabilitation and
+  # low-back-pain coverage. Both are real WHO publications ingested through
+  # the same pipeline and licensing posture as the original seven.
+
+  - document_id: who_rehab_msk
+    title: "WHO Package of Interventions for Rehabilitation — Module 2: Musculoskeletal Conditions"
+    organization: WHO
+    tier: 2
+    enabled: true
+    file: data/raw/who_rehab_msk.pdf
+    domains: [musculoskeletal, rehabilitation, physical-activity]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "https://iris.who.int/server/api/core/bitstreams/b391d235-448f-4a16-97fc-70a6c0f58870/content"
+    publication_year: 2023
+
+  - document_id: who_lbp
+    title: "WHO Guideline for Non-Surgical Management of Chronic Primary Low Back Pain in Adults"
+    organization: WHO
+    tier: 2
+    enabled: true
+    file: data/raw/who_lbp.pdf
+    domains: [musculoskeletal, rehabilitation, general-acute]
+    heading_profile: config/heading_profiles/generic.yaml
+    license: "CC BY-NC-SA 3.0 IGO"
+    source_url: "https://iris.who.int/server/api/core/bitstreams/d3ff33db-d9fd-46a6-8992-e0617d71a5a6/content"
+    publication_year: 2023

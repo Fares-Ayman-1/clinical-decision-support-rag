@@ -15,8 +15,12 @@ from pydantic import BaseModel, Field
 # for 14 fixed labels).
 DOMAIN_LABELS = (
     "abdominal", "acs", "acute-care", "cardiovascular", "emergency",
-    "gastrointestinal", "general-acute", "infectious-disease", "nutrition",
-    "physical-activity", "prevention", "respiratory", "stroke", "wellness",
+    "gastrointestinal", "general-acute", "infectious-disease",
+    # Physiotherapy/rehabilitation expansion (WHO rehab MSK module + WHO
+    # chronic low-back-pain guideline). Labels here AND in corpus.yaml must
+    # agree: the classifier can only boost domains that chunks carry.
+    "musculoskeletal", "nutrition", "physical-activity", "prevention",
+    "rehabilitation", "respiratory", "stroke", "wellness",
 )
 
 

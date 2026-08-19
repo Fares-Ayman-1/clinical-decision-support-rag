@@ -684,3 +684,36 @@ async def post_transcribe(request: Request):
 
     text = (resp.json().get("text") or "").strip()
     return {"text": text, "model": GROQ_STT_MODEL}
+
+
+# --- Care directory: powers the call-to-action buttons ----------------------
+# Curated Egypt hotlines + facilities with Google Maps deep links
+# (data/care_directory.json). Static and cached at first request; the
+# frontend renders these as working tel:/maps links so "seek care" CTAs go
+# somewhere real instead of dead-ending. Demo data — the JSON's _meta says
+# so and the API passes that caveat through rather than hiding it.
+
+_CARE_DIRECTORY_CACHE: dict | None = None
+
+
+@app.get("/api/care-directory")
+def get_care_directory(city: str | None = None, specialty: str | None = None):
+    global _CARE_DIRECTORY_CACHE
+    if _CARE_DIRECTORY_CACHE is None:
+        import json as _json
+        import pathlib as _pathlib
+
+        path = _pathlib.Path(__file__).resolve().parents[2] / "data" / "care_directory.json"
+        try:
+            _CARE_DIRECTORY_CACHE = _json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raise HTTPException(status_code=503, detail={"code": "DIRECTORY_UNAVAILABLE"})
+
+    payload = dict(_CARE_DIRECTORY_CACHE)
+    facilities = payload.get("facilities", [])
+    if city:
+        facilities = [f for f in facilities if f.get("city", "").lower() == city.lower()]
+    if specialty:
+        facilities = [f for f in facilities if specialty.lower() in [s.lower() for s in f.get("specialties", [])]]
+    payload["facilities"] = facilities
+    return payload

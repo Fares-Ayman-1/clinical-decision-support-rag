@@ -390,8 +390,13 @@ export default function App() {
   // "recording" -> MediaRecorder active; "transcribing" -> upload in flight.
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
   const [voiceError, setVoiceError] = useState("");
+  // Live dictation preview: a 3s MediaRecorder timeslice re-transcribes the
+  // accumulated audio and REPLACES this string (Groq has no streaming STT, so
+  // progressive re-transcription is the honest real-time equivalent).
+  const [livePreview, setLivePreview] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const previewAbortRef = useRef<AbortController | null>(null);
   // The text a request was actually sent with -- distinct from `message`,
   // which clears immediately on send (chat-input convention). Holds what the
   // "You" bubble displays and what a failed request retries with, since
@@ -533,29 +538,50 @@ export default function App() {
         : undefined; // Safari records audio/mp4; the backend maps both.
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
+      let stopping = false;
+      const transcribe = async (audio: Blob, signal?: AbortSignal): Promise<string> => {
+        const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": (audio.type || "audio/webm").split(";")[0] },
+          body: audio,
+          signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = (await response.json()) as { text?: string };
+        return (payload.text ?? "").trim();
+      };
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
+        if (stopping || chunksRef.current.length === 0) return;
+        // Live preview: transcribe everything captured so far, aborting the
+        // previous in-flight pass — only the newest result may win, or an
+        // older slower response would overwrite a newer preview.
+        const audio = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (audio.size < 2048) return;
+        previewAbortRef.current?.abort();
+        const controller = new AbortController();
+        previewAbortRef.current = controller;
+        transcribe(audio, controller.signal)
+          .then((text) => {
+            if (!controller.signal.aborted && text) setLivePreview(text);
+          })
+          .catch(() => {});
       };
       recorder.onstop = async () => {
+        stopping = true;
+        previewAbortRef.current?.abort();
         stream.getTracks().forEach((track) => track.stop());
-        const blobType = recorder.mimeType || "audio/webm";
-        const audio = new Blob(chunksRef.current, { type: blobType });
+        const audio = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         chunksRef.current = [];
         if (audio.size < 1024) {
           // A sub-1KB capture is a mis-click, not dictation.
+          setLivePreview("");
           setVoiceState("idle");
           return;
         }
         setVoiceState("transcribing");
         try {
-          const response = await fetch(`${API_BASE_URL}/api/transcribe`, {
-            method: "POST",
-            headers: { "Content-Type": blobType.split(";")[0] },
-            body: audio,
-          });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const payload = (await response.json()) as { text?: string };
-          const text = (payload.text ?? "").trim();
+          const text = await transcribe(audio);
           if (text) {
             // Append rather than replace: dictation extends whatever is typed.
             setMessage((previous) => (previous.trim() ? `${previous.trim()} ${text}` : text));
@@ -564,11 +590,12 @@ export default function App() {
         } catch {
           setVoiceError("Transcription failed — check the API connection and try again.");
         } finally {
+          setLivePreview("");
           setVoiceState("idle");
           textareaRef.current?.focus();
         }
       };
-      recorder.start();
+      recorder.start(3000); // timeslice drives the live preview
       recorderRef.current = recorder;
       setVoiceState("recording");
     } catch {
@@ -616,11 +643,34 @@ export default function App() {
 
   function confirmAction(action: ClinicalAction) {
     setPendingAction(null);
-    if (action === "call" && EMERGENCY_NUMBER) {
-      window.location.assign(`tel:${EMERGENCY_NUMBER.replace(/[^+\d]/g, "")}`);
+    if (action === "call") {
+      // Egypt's national ambulance number backs the button when no local
+      // override is baked in (data/care_directory.json is the source of
+      // truth for the directory the API serves at /api/care-directory).
+      const number = EMERGENCY_NUMBER || "123";
+      window.location.assign(`tel:${number.replace(/[^+\d]/g, "")}`);
     }
     if (action === "facility") {
-      window.open("https://www.google.com/maps/search/emergency+medical+care+near+me", "_blank", "noopener,noreferrer");
+      const fallback = () =>
+        window.open("https://www.google.com/maps/search/?api=1&query=hospital+near+me", "_blank", "noopener,noreferrer");
+      if (navigator.geolocation) {
+        // Centering the search on real coordinates beats "near me", which
+        // Google resolves by IP — often a different city on mobile networks.
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            window.open(
+              `https://www.google.com/maps/search/hospital/@${latitude},${longitude},14z`,
+              "_blank",
+              "noopener,noreferrer",
+            );
+          },
+          fallback,
+          { timeout: 5000 },
+        );
+      } else {
+        fallback();
+      }
     }
   }
 
@@ -748,6 +798,12 @@ export default function App() {
                   aria-describedby="question-help question-error"
                   disabled={isLoading}
                 />
+                {(voiceState === "recording" || livePreview) && (
+                  <div className="voice-preview" aria-live="polite">
+                    <span className="voice-preview-dot" aria-hidden="true" />
+                    <em>{livePreview || "Listening…"}</em>
+                  </div>
+                )}
                 <div className="composer-footer">
                   <div className="composer-meta" id="question-help">
                     <span>{message.length.toLocaleString()} / 2,000</span>

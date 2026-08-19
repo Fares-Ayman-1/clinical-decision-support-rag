@@ -1,0 +1,105 @@
+{
+  "_meta": {
+    "description": "Curated Egypt care directory backing the app's call-to-action buttons: national hotlines plus major hospitals/physio-relevant centers with Google Maps deep links (search links, no API key). Curated 2026-08-19 from public listings; VERIFY numbers and names with official sources before any real-care use — this is demo data for a prototype, not a medical referral registry.",
+    "country": "EG",
+    "maps_link_pattern": "https://www.google.com/maps/search/?api=1&query=<url-encoded name + city>"
+  },
+  "hotlines": [
+    { "id": "ambulance", "name_ar": "الإسعاف المصري", "name_en": "Egyptian Ambulance", "phone": "123", "kind": "emergency" },
+    { "id": "police", "name_ar": "الشرطة (الطوارئ)", "name_en": "Police (emergency)", "phone": "122", "kind": "emergency" },
+    { "id": "fire", "name_ar": "المطافئ", "name_en": "Fire brigade", "phone": "180", "kind": "emergency" },
+    { "id": "moh", "name_ar": "الخط الساخن لوزارة الصحة", "name_en": "Ministry of Health hotline", "phone": "105", "kind": "health-info" }
+  ],
+  "facilities": [
+    {
+      "id": "kasr_alainy",
+      "name_ar": "مستشفى قصر العيني (جامعة القاهرة)",
+      "name_en": "Kasr Al-Ainy Hospital (Cairo University)",
+      "city": "Cairo",
+      "type": "university",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Kasr%20Al%20Ainy%20Hospital%20Cairo"
+    },
+    {
+      "id": "ain_shams_uni",
+      "name_ar": "مستشفيات جامعة عين شمس (الدمرداش)",
+      "name_en": "Ain Shams University Hospitals (El-Demerdash)",
+      "city": "Cairo",
+      "type": "university",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=El%20Demerdash%20Hospital%20Cairo"
+    },
+    {
+      "id": "nasser_institute",
+      "name_ar": "معهد ناصر للبحوث والعلاج",
+      "name_en": "Nasser Institute for Research and Treatment",
+      "city": "Cairo",
+      "type": "public",
+      "specialties": ["emergency", "orthopedics", "neurology", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Nasser%20Institute%20Hospital%20Cairo"
+    },
+    {
+      "id": "elsalam_intl",
+      "name_ar": "مستشفى السلام الدولي",
+      "name_en": "El Salam International Hospital",
+      "city": "Cairo",
+      "type": "private",
+      "specialties": ["emergency", "orthopedics", "physiotherapy", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=El%20Salam%20International%20Hospital%20Maadi%20Cairo"
+    },
+    {
+      "id": "dar_alfouad_giza",
+      "name_ar": "مستشفى دار الفؤاد - ٦ أكتوبر",
+      "name_en": "Dar Al Fouad Hospital - 6th of October",
+      "city": "Giza",
+      "type": "private",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "cardiology"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Dar%20Al%20Fouad%20Hospital%206th%20of%20October"
+    },
+    {
+      "id": "giza_physio_uni",
+      "name_ar": "كلية العلاج الطبيعي جامعة القاهرة (العيادات الخارجية)",
+      "name_en": "Faculty of Physical Therapy, Cairo University (outpatient clinics)",
+      "city": "Giza",
+      "type": "university",
+      "specialties": ["physiotherapy", "rehabilitation", "musculoskeletal"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Faculty%20of%20Physical%20Therapy%20Cairo%20University"
+    },
+    {
+      "id": "alex_main_uni",
+      "name_ar": "مستشفى الإسكندرية الجامعي الرئيسي",
+      "name_en": "Alexandria Main University Hospital",
+      "city": "Alexandria",
+      "type": "university",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Alexandria%20Main%20University%20Hospital"
+    },
+    {
+      "id": "smouha_alex",
+      "name_ar": "مستشفى سموحة الدولي (جامعة الإسكندرية)",
+      "name_en": "Smouha International Hospital (Alexandria University)",
+      "city": "Alexandria",
+      "type": "university",
+      "specialties": ["emergency", "physiotherapy", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Smouha%20International%20Hospital%20Alexandria"
+    },
+    {
+      "id": "mansoura_uni",
+      "name_ar": "مستشفيات جامعة المنصورة",
+      "name_en": "Mansoura University Hospitals",
+      "city": "Mansoura",
+      "type": "university",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Mansoura%20University%20Hospital"
+    },
+    {
+      "id": "assiut_uni",
+      "name_ar": "مستشفيات جامعة أسيوط",
+      "name_en": "Assiut University Hospitals",
+      "city": "Assiut",
+      "type": "university",
+      "specialties": ["emergency", "orthopedics", "rehabilitation", "general"],
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Assiut%20University%20Hospital"
+    }
+  ]
+}

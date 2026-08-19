@@ -44,8 +44,21 @@ def embedding_version() -> str:
     return yaml.safe_load(CONFIG.read_text(encoding="utf-8"))["embedding_version"]
 
 
+def corpus_chunk_count() -> int:
+    """Line count of the serving chunk file — the corpus fingerprint."""
+    path = pathlib.Path("/app/data/chunks/benchmark/1.0_S1.jsonl")
+    with path.open("rb") as f:
+        return sum(1 for _ in f)
+
+
 def snapshot_filename() -> str:
-    return f"{COLLECTION}-{embedding_version()}.snapshot"
+    # Keyed by embedding_version AND chunk count: a model swap changes the
+    # first, a corpus change (e.g. the physio expansion adding WHO rehab MSK
+    # + low-back-pain docs) changes the second. Either way the old snapshot's
+    # name no longer matches, restore misses, and the startup build embeds
+    # the real corpus instead of resurrecting a stale index. Without the
+    # count, adding documents would be silently ignored on every restart.
+    return f"{COLLECTION}-{embedding_version()}-{corpus_chunk_count()}.snapshot"
 
 
 def points_count() -> int:
