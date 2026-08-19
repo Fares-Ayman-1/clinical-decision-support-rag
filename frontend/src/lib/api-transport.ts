@@ -25,9 +25,19 @@ export interface ApiTransportConfig {
   timeoutMs?: number | Partial<Record<EndpointName, number>>;
 }
 
+// query is 180s, not a round 30s, because the pipeline is genuinely that slow
+// on CPU: a measured live request took 124.7s, of which the cross-encoder
+// reranker alone was 96.4s. At 30s the client aborted every real query and
+// reported REQUEST_TIMEOUT — the service was working, just slower than the
+// client was willing to wait.
+//
+// This is a stopgap sized to observed latency, NOT a target. NFR-2.1 asks for
+// p95 <= 8s, and TODO-PRODUCTION.md tracks the reranker cost as P0. When that
+// is fixed this should come back down; leaving it at 180s permanently would
+// hide the regression it is currently papering over.
 const DEFAULT_TIMEOUTS: Readonly<Record<EndpointName, number>> = {
   health: 5_000,
-  query: 30_000,
+  query: 180_000,
   evidence: 10_000,
 };
 
@@ -85,10 +95,31 @@ async function readJson(response: Response): Promise<unknown> {
   try {
     return JSON.parse(body) as unknown;
   } catch (error) {
-    throw new ClinicalApiError("INVALID_RESPONSE", "The clinical service returned invalid JSON.", {
-      status: response.status,
-      cause: error,
-    });
+    // A non-JSON body is not the application misbehaving — it means the
+    // request never reached the application. Starlette's CORS middleware
+    // rejects a disallowed Origin with a plain-text 400 ("Disallowed CORS
+    // origin") before any route runs, and a proxy or gateway outage returns
+    // an HTML error page the same way. Reporting those as INVALID_RESPONSE
+    // ("the service returned data that does not match its contract") sends
+    // whoever is debugging to look at response shapes when the actual fault
+    // is FRONTEND_ORIGIN being unset or not matching the deployed web URL.
+    //
+    // Observed exactly that: a healthy API returning 200 with a valid body,
+    // while the browser showed INVALID_RESPONSE because the preflight was
+    // refused and its plain-text body failed JSON.parse.
+    const snippet = body.trim().slice(0, 200);
+    const looksLikeCors = /disallowed cors origin/i.test(snippet);
+    throw new ClinicalApiError(
+      looksLikeCors ? "SERVICE_UNAVAILABLE" : "INVALID_RESPONSE",
+      looksLikeCors
+        ? "The clinical service rejected this origin (CORS). Its FRONTEND_ORIGIN must match the address this page is served from."
+        : "The clinical service returned a non-JSON response.",
+      {
+        status: response.status,
+        details: [{ field: "response", code: "non_json_body", message: snippet }],
+        cause: error,
+      },
+    );
   }
 }
 

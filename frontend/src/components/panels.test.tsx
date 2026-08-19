@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { getDemoResult } from "../data/demo-scenarios";
@@ -33,6 +33,10 @@ describe("technical inspector accessibility", () => {
         onLoadFullText={vi.fn(() => Promise.reject(new Error("not expanded")))}
       />,
     );
+
+    // The scores now sit inside a collapsed "Technical details" <details>
+    // element -- expand it before looking for the meter.
+    fireEvent.click(screen.getByText("Technical details"));
 
     const meter = screen.getByRole("meter", {
       name: `Rerank score for evidence ${evidence[0]!.index}`,

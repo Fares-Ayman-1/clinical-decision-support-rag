@@ -29,13 +29,46 @@ CHUNK_STORE_PATH = REPO_ROOT / "data" / "chunk_store" / "medical_chunks.jsonl"
 # 5-config chunking-strategy comparison, R13, is still incomplete; S1 is
 # the one config proven end-to-end). Swap once the comparison finishes.
 MVP_SOURCE_CHUNKS_PATH = REPO_ROOT / "data" / "chunks" / "benchmark" / "1.0_S1.jsonl"
-# Read from the environment so a containerized or remote deployment can point
-# at a non-local Qdrant. docker-compose.yml already sets this to
-# http://qdrant:6333 for the `api` service; before this was env-driven that
-# setting was silently ignored and the container looked for Qdrant inside
-# itself. The default keeps single-machine dev behavior unchanged.
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
+DEFAULT_QDRANT_URL = "http://localhost:6333"
 KB_VERSION = "1.0"
+
+
+def qdrant_url() -> str:
+    """Resolved at CALL time, not import time.
+
+    Two reasons it is a function rather than a module constant:
+
+    - Inside a container, "localhost" is the API container itself, so a
+      hardcoded value makes the composed deployment unable to reach Qdrant
+      at all. docker-compose.yml already sets QDRANT_URL=http://qdrant:6333
+      and .env documents it — nothing was reading either.
+    - A module-level `os.environ.get(...)` would run at import, which is
+      BEFORE load_dotenv() in load_app_resources(). Values from .env would
+      be silently ignored while appearing to be supported.
+
+    The localhost default keeps bare-metal `uvicorn` working unchanged.
+    """
+    return os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL)
+
+
+def qdrant_api_key() -> str | None:
+    """API key for a secured Qdrant, or None for an unauthenticated one.
+
+    Qdrant ships with NO authentication: a self-hosted instance reachable on
+    a network anyone can route to is world-readable AND world-writable, which
+    for this system means the evidence corpus could be silently altered
+    underneath every citation the API returns. Hosted deployments must set
+    QDRANT__SERVICE__API_KEY on the server and QDRANT_API_KEY here.
+
+    Resolved at call time for the same reason as qdrant_url() — a
+    module-level read would happen before load_dotenv().
+
+    `or None` so that an empty-string variable behaves like "unset". An
+    empty api_key is not the same as no api_key to qdrant-client, and a
+    blank value left in a .env would otherwise send an empty credential
+    and fail against a local, unsecured instance.
+    """
+    return os.environ.get("QDRANT_API_KEY") or None
 
 
 @dataclass
@@ -98,7 +131,8 @@ def load_app_resources() -> AppResources:
 
     chunk_store = load_chunk_store(CHUNK_STORE_PATH)
 
-    qdrant_client = QdrantClient(url=QDRANT_URL)
+    # After load_dotenv() above, so .env is honoured.
+    qdrant_client = QdrantClient(url=qdrant_url(), api_key=qdrant_api_key())
 
     reranker = _load_reranker()
 

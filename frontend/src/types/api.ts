@@ -603,6 +603,20 @@ export const apiErrorEnvelopeSchema = z
         code: apiErrorCodeSchema,
         message: nonEmptyString,
         request_id: z.string().uuid().optional(),
+        // The machine-readable diagnostic behind `code`. The backend sends
+        // this on EVERY error (main.py _error_body always sets it), and
+        // omitting it here was not merely incomplete — because this object
+        // is .strict(), an undeclared key made the whole envelope fail to
+        // parse, so every structured error fell through to the generic
+        // INVALID_RESPONSE branch. A deployed API reporting
+        // RETRIEVAL_UNAVAILABLE / VECTOR_STORE_UNREACHABLE surfaced in the
+        // UI only as "The service returned an unexpected response".
+        //
+        // It carries real diagnostic value worth keeping: RESOURCES_NOT_LOADED
+        // and VECTOR_STORE_UNREACHABLE share the RETRIEVAL_UNAVAILABLE code
+        // but mean different things (index never loaded vs. Qdrant
+        // unreachable), and only `reason` tells them apart.
+        reason: nonEmptyString.optional(),
         stage: nonEmptyString.optional(),
         details: z.array(apiErrorDetailSchema).optional(),
       })

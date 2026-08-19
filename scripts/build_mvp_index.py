@@ -14,7 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import argparse
 import pathlib
 import sys
@@ -22,8 +21,13 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "backend"))
 
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env")
+
 from qdrant_client import QdrantClient  # noqa: E402
 
+from app.api.dependencies import qdrant_api_key, qdrant_url  # noqa: E402
 from app.services.retrieval.bm25_index import build_bm25_index  # noqa: E402
 from app.services.retrieval.embedding_provider import (  # noqa: E402
     SentenceTransformerProvider,
@@ -34,12 +38,6 @@ from app.services.retrieval.qdrant_index import build_index, load_chunks  # noqa
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 BENCHMARK_CHUNKS_DIR = REPO_ROOT / "data" / "chunks" / "benchmark"
 CHUNK_STORE_DIR = REPO_ROOT / "data" / "chunk_store"
-# Read from the environment so a containerized or remote deployment can point
-# at a non-local Qdrant. docker-compose.yml already sets this to
-# http://qdrant:6333 for the `api` service; before this was env-driven that
-# setting was silently ignored and the container looked for Qdrant inside
-# itself. The default keeps single-machine dev behavior unchanged.
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
 
 
 def main() -> int:
@@ -53,7 +51,16 @@ def main() -> int:
         print(f"FAIL: no chunk file at {jsonl_path}. Run scripts/chunk_benchmark.py first.")
         return 1
 
-    client = QdrantClient(url=QDRANT_URL)
+    # Env-driven so this script can seed a REMOTE Qdrant (a hosted
+    # deployment starts with an empty volume and returns 503
+    # RETRIEVAL_UNAVAILABLE until this runs against it):
+    #   QDRANT_URL=https://host:6333 QDRANT_API_KEY=... python scripts/build_mvp_index.py --recreate
+    target = qdrant_url()
+    print(f"Target Qdrant: {target}" + ("  (with api key)" if qdrant_api_key() else "  (no api key)"))
+    # Long timeout: upserting 7,381 points over the public internet is far
+    # slower than to localhost, and the default would abort a remote seed
+    # part-way through, leaving a half-populated collection.
+    client = QdrantClient(url=target, api_key=qdrant_api_key(), timeout=120)
     embedding_cfg = load_embedding_config()
     print(f"Loading {embedding_cfg.name} (max_seq_length={embedding_cfg.max_seq_length})...")
     provider = SentenceTransformerProvider(embedding_cfg)

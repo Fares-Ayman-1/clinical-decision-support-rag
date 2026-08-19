@@ -3,6 +3,7 @@ import {
   ArrowUp,
   BellRing,
   Bot,
+  BookOpen,
   CircleCheck,
   CircleX,
   ClipboardCheck,
@@ -17,12 +18,15 @@ import {
   ShieldCheck,
   Sparkles,
   TriangleAlert,
+  User,
+  Workflow,
 } from "lucide-react";
 
 import { ActionConfirmDialog, type ClinicalAction } from "./components/ActionConfirmDialog";
 import { AppHeader, type ConnectionStatus } from "./components/AppHeader";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { LoadingState } from "./components/LoadingState";
+import { Modal } from "./components/Modal";
 import { TracePanel } from "./components/TracePanel";
 import { demoScenarios, type DemoScenarioId } from "./data/demo-scenarios";
 import {
@@ -42,7 +46,6 @@ import type {
 
 type Theme = "light" | "dark";
 type AppMode = "api" | "demo";
-type MobilePanel = "chat" | "evidence" | "trace";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:8000";
 const DEMO_ENABLED = import.meta.env.VITE_ENABLE_DEMO_MODE !== "false";
@@ -55,8 +58,6 @@ const QUICK_PROMPTS = [
   "My ankles are swelling and I gained weight quickly this week.",
   "What warning signs mean I should seek urgent care?",
 ] as const;
-
-const WORKSPACE_PANELS = ["chat", "evidence", "trace"] as const;
 
 const riskIcons: Record<RiskLevel, typeof ShieldCheck> = {
   LOW: CircleCheck,
@@ -337,19 +338,69 @@ function ChatEmptyState({ onPrompt }: { onPrompt: (prompt: string) => void }) {
   );
 }
 
+function UserQuestionBubble({ text }: { text: string }) {
+  return (
+    <div className="user-message">
+      <div className="user-message__label">
+        <User size={12} aria-hidden="true" />
+        You
+      </div>
+      <p className="user-message__text">{text}</p>
+    </div>
+  );
+}
+
+interface InspectorActionsProps {
+  evidenceCount: number;
+  hasResult: boolean;
+  onOpenEvidence: () => void;
+  onOpenPipeline: () => void;
+}
+
+function InspectorActions({ evidenceCount, hasResult, onOpenEvidence, onOpenPipeline }: InspectorActionsProps) {
+  if (evidenceCount === 0 && !hasResult) return null;
+
+  return (
+    <div className="inspector-actions">
+      {evidenceCount > 0 ? (
+        <button className="inspector-button" type="button" onClick={onOpenEvidence}>
+          <BookOpen size={16} aria-hidden="true" />
+          Evidence ({evidenceCount})
+        </button>
+      ) : null}
+      {hasResult ? (
+        <button className="inspector-button" type="button" onClick={onOpenPipeline}>
+          <Workflow size={16} aria-hidden="true" />
+          Decision Pipeline
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [mode, setMode] = useState<AppMode>("api");
   const [scenarioId, setScenarioId] = useState<DemoScenarioId>("critical");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("offline");
   const [message, setMessage] = useState("");
+  // The text a request was actually sent with -- distinct from `message`,
+  // which clears immediately on send (chat-input convention). Holds what the
+  // "You" bubble displays and what a failed request retries with, since
+  // `message` is empty by the time either of those needs it.
+  const [submittedQuestion, setSubmittedQuestion] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<ClinicalApiError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [assessmentEpoch, setAssessmentEpoch] = useState(0);
   const [activeEvidence, setActiveEvidence] = useState<number | null>(null);
-  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("chat");
+  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  const [isPipelineOpen, setIsPipelineOpen] = useState(false);
+  // Owned here, not inside EvidencePanel, because the modal unmounts the panel
+  // on close — without lifting the cache, every reopen would re-fetch a
+  // passage that was already loaded once this assessment.
+  const [fullTextByChunk, setFullTextByChunk] = useState<Record<string, string>>({});
   const [pendingAction, setPendingAction] = useState<ClinicalAction | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -394,9 +445,12 @@ export default function App() {
     setResult(null);
     setError(null);
     setActiveEvidence(null);
+    setIsEvidenceOpen(false);
+    setIsPipelineOpen(false);
+    setFullTextByChunk({});
     setValidationMessage("");
+    setSubmittedQuestion(null);
     setMessage(nextMessage);
-    setMobilePanel("chat");
   }, []);
 
   const switchMode = useCallback((nextMode: AppMode) => {
@@ -411,19 +465,7 @@ export default function App() {
     resetAssessment(next?.examplePrompt ?? "");
   }, [resetAssessment]);
 
-  const submitAssessment = useCallback(async () => {
-    const normalized = message.trim();
-    if (!normalized) {
-      setValidationMessage("Enter a clinical question before submitting.");
-      textareaRef.current?.focus();
-      return;
-    }
-    if (normalized.length > 2_000) {
-      setValidationMessage("Clinical questions must be 2,000 characters or fewer.");
-      textareaRef.current?.focus();
-      return;
-    }
-
+  const runAssessment = useCallback(async (text: string) => {
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -432,12 +474,15 @@ export default function App() {
     setResult(null);
     setError(null);
     setActiveEvidence(null);
+    setIsEvidenceOpen(false);
+    setIsPipelineOpen(false);
+    setFullTextByChunk({});
+    setSubmittedQuestion(text);
     setIsLoading(true);
-    setMobilePanel("chat");
 
     try {
       const response = await transport.query(
-        { message: normalized, options: { include_trace: true, stream: false } },
+        { message: text, options: { include_trace: true, stream: false } },
         { signal: controller.signal },
       );
       if (requestController.current !== controller) return;
@@ -460,7 +505,30 @@ export default function App() {
         setIsLoading(false);
       }
     }
-  }, [message, mode, transport]);
+  }, [mode, transport]);
+
+  const submitAssessment = useCallback(async () => {
+    const normalized = message.trim();
+    if (!normalized) {
+      setValidationMessage("Enter a clinical question before submitting.");
+      textareaRef.current?.focus();
+      return;
+    }
+    if (normalized.length > 2_000) {
+      setValidationMessage("Clinical questions must be 2,000 characters or fewer.");
+      textareaRef.current?.focus();
+      return;
+    }
+
+    // Cleared immediately, chat-input style -- the sent text lives on as
+    // `submittedQuestion` (set inside runAssessment) for the bubble and retry.
+    setMessage("");
+    await runAssessment(normalized);
+  }, [message, runAssessment]);
+
+  const retryAssessment = useCallback(() => {
+    if (submittedQuestion) void runAssessment(submittedQuestion);
+  }, [submittedQuestion, runAssessment]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -473,7 +541,7 @@ export default function App() {
 
   function openCitation(index: number) {
     setActiveEvidence(index);
-    setMobilePanel("evidence");
+    setIsEvidenceOpen(true);
   }
 
   function confirmAction(action: ClinicalAction) {
@@ -486,7 +554,9 @@ export default function App() {
     }
   }
 
-  const panelClass = (panel: MobilePanel) => `panel panel-${panel} ${mobilePanel === panel ? "mobile-active" : ""}`;
+  function recordFullText(chunkId: string, text: string) {
+    setFullTextByChunk((current) => ({ ...current, [chunkId]: text }));
+  }
 
   return (
     <div className="app-shell">
@@ -540,45 +610,8 @@ export default function App() {
           </div>
         </section>
 
-        <div className="mobile-tabs" role="tablist" aria-label="Clinical workspace panels">
-          {WORKSPACE_PANELS.map((panel) => (
-            <button
-              id={`workspace-tab-${panel}`}
-              className={`mobile-tab ${mobilePanel === panel ? "active" : ""}`}
-              type="button"
-              role="tab"
-              aria-selected={mobilePanel === panel}
-              aria-controls={`panel-${panel}`}
-              tabIndex={mobilePanel === panel ? 0 : -1}
-              onClick={() => setMobilePanel(panel)}
-              onKeyDown={(event) => {
-                const current = WORKSPACE_PANELS.indexOf(panel);
-                let next = current;
-                if (event.key === "ArrowRight") next = (current + 1) % WORKSPACE_PANELS.length;
-                else if (event.key === "ArrowLeft") next = (current - 1 + WORKSPACE_PANELS.length) % WORKSPACE_PANELS.length;
-                else if (event.key === "Home") next = 0;
-                else if (event.key === "End") next = WORKSPACE_PANELS.length - 1;
-                else return;
-                event.preventDefault();
-                const nextPanel = WORKSPACE_PANELS[next];
-                setMobilePanel(nextPanel);
-                window.requestAnimationFrame(() => document.getElementById(`workspace-tab-${nextPanel}`)?.focus());
-              }}
-              key={panel}
-            >
-              {panel[0].toUpperCase() + panel.slice(1)}
-              {panel === "evidence" && evidence.length > 0 ? <span aria-hidden="true"> ({evidence.length})</span> : null}
-            </button>
-          ))}
-        </div>
-
         <div className="workspace">
-          <section
-            id="panel-chat"
-            className={panelClass("chat")}
-            role="tabpanel"
-            aria-labelledby="workspace-tab-chat"
-          >
+          <section className="panel panel-chat">
             <header className="panel-header">
               <div className="panel-icon" aria-hidden="true"><MessageSquareText size={20} /></div>
               <div className="panel-heading">
@@ -590,6 +623,7 @@ export default function App() {
 
             <div className="panel-body chat-body">
               {!result && !error && !isLoading ? <ChatEmptyState onPrompt={(prompt) => { setMessage(prompt); textareaRef.current?.focus(); }} /> : null}
+              {submittedQuestion ? <UserQuestionBubble text={submittedQuestion} /> : null}
               {isLoading ? <LoadingState onCancel={cancelAssessment} /> : null}
               {result?.status === "success" ? <SuccessResult result={result} onCitation={openCitation} onAction={setPendingAction} /> : null}
               {result?.status === "refusal" ? <RefusalResult result={result} /> : null}
@@ -598,7 +632,16 @@ export default function App() {
                   error={error}
                   canUseDemo={mode === "api" && DEMO_ENABLED}
                   onUseDemo={() => switchMode("demo")}
-                  onRetry={() => void submitAssessment()}
+                  onRetry={retryAssessment}
+                />
+              ) : null}
+
+              {!isLoading ? (
+                <InspectorActions
+                  evidenceCount={evidence.length}
+                  hasResult={Boolean(result)}
+                  onOpenEvidence={() => setIsEvidenceOpen(true)}
+                  onOpenPipeline={() => setIsPipelineOpen(true)}
                 />
               ) : null}
             </div>
@@ -615,7 +658,17 @@ export default function App() {
                     if (validationMessage) setValidationMessage("");
                   }}
                   onKeyDown={(event) => {
-                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    // Composing an IME candidate (e.g. Chinese/Japanese/Korean
+                    // input) also reports key "Enter" -- that Enter confirms the
+                    // candidate and must not also submit the form. keyCode 229
+                    // is the older cross-browser signal isComposing doesn't
+                    // always cover.
+                    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    // Enter sends; Shift+Enter falls through to the textarea's
+                    // default newline-insertion behavior. ctrlKey/metaKey are
+                    // irrelevant to this condition, so Ctrl+Enter still submits
+                    // too -- nothing extra needed to keep that working.
+                    if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       void submitAssessment();
                     }
@@ -628,7 +681,8 @@ export default function App() {
                 <div className="composer-footer">
                   <div className="composer-meta" id="question-help">
                     <span>{message.length.toLocaleString()} / 2,000</span>
-                    <span>CTRL + ENTER</span>
+                    <span>ENTER TO SEND</span>
+                    <span>SHIFT+ENTER FOR NEW LINE</span>
                     {mode === "demo" ? <strong>SYNTHETIC</strong> : null}
                   </div>
                   <button className="submit-button" type="submit" disabled={isLoading} aria-label="Submit clinical question">
@@ -639,26 +693,6 @@ export default function App() {
               <p className="validation-message" id="question-error" role="alert">{validationMessage}</p>
             </form>
           </section>
-
-          <EvidencePanel
-            id="panel-evidence"
-            key={`assessment-${assessmentEpoch}`}
-            evidence={evidence}
-            onLoadFullText={(chunkId, signal) => transport.evidence(chunkId, { signal })}
-            activeIndex={activeEvidence}
-            onSelectEvidence={setActiveEvidence}
-            className={panelClass("evidence")}
-            tabLabelId="workspace-tab-evidence"
-          />
-
-          <TracePanel
-            id="panel-trace"
-            trace={trace}
-            isLoading={isLoading}
-            unavailableMessage={result ? "This response did not include a trace. Backend debug tracing may be disabled." : "Submit a question to inspect each decision stage."}
-            className={panelClass("trace")}
-            tabLabelId="workspace-tab-trace"
-          />
         </div>
 
         <aside className="disclaimer" aria-label="Medical disclaimer">
@@ -666,6 +700,43 @@ export default function App() {
           <span>{disclaimer} If symptoms are severe or rapidly worsening, seek immediate professional help using the appropriate service for your location.</span>
         </aside>
       </main>
+
+      <Modal
+        open={isEvidenceOpen}
+        onClose={() => setIsEvidenceOpen(false)}
+        title="Retrieved Evidence"
+        variant="evidence"
+        headerExtra={
+          <span className="modal-header-count">
+            {evidence.length} {evidence.length === 1 ? "SOURCE" : "SOURCES"}
+          </span>
+        }
+      >
+        <EvidencePanel
+          key={`assessment-${assessmentEpoch}`}
+          embedded
+          evidence={evidence}
+          onLoadFullText={(chunkId, signal) => transport.evidence(chunkId, { signal })}
+          activeIndex={activeEvidence}
+          onSelectEvidence={setActiveEvidence}
+          initialFullText={fullTextByChunk}
+          onFullTextLoaded={recordFullText}
+        />
+      </Modal>
+
+      <Modal
+        open={isPipelineOpen}
+        onClose={() => setIsPipelineOpen(false)}
+        title="Decision Pipeline"
+        variant="pipeline"
+      >
+        <TracePanel
+          embedded
+          trace={trace}
+          isLoading={isLoading}
+          unavailableMessage={result ? "This response did not include a trace. Backend debug tracing may be disabled." : "Submit a question to inspect each decision stage."}
+        />
+      </Modal>
 
       <ActionConfirmDialog action={pendingAction} onCancel={() => setPendingAction(null)} onConfirm={confirmAction} />
     </div>

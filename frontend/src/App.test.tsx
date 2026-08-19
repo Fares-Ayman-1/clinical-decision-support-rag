@@ -180,6 +180,10 @@ describe("App clinical assessment flow", () => {
     expect(screen.getByText(/qualified healthcare professional/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/risk assessment/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Available actions")).not.toBeInTheDocument();
+
+    // Evidence now lives behind the "Evidence (N)" button, not permanently on
+    // the page.
+    await user.click(screen.getByRole("button", { name: /^Evidence \(/ }));
     expect(
       screen.getByRole("article", { name: /Evidence 1: discarded/i }),
     ).toBeInTheDocument();
@@ -380,6 +384,9 @@ describe("real API failures and explicit fallback", () => {
     await submitQuestion(user);
     await screen.findByRole("heading", { name: "Answer generation is unavailable" });
 
+    // Evidence now lives behind the "Evidence (N)" button, not permanently on
+    // the page.
+    await user.click(screen.getByRole("button", { name: /^Evidence \(/ }));
     const firstArticle = screen.getByRole("article", { name: /Evidence 1: discarded/i });
     await user.click(within(firstArticle).getByRole("button", { name: "Open full passage" }));
     expect(await screen.findByText(firstPassage)).toBeInTheDocument();
@@ -389,6 +396,9 @@ describe("real API failures and explicit fallback", () => {
     await waitFor(() => expect(queryCalls).toBe(2));
     expect(screen.queryByText(firstPassage)).not.toBeInTheDocument();
 
+    // The retry closes the modal along with the rest of the assessment state,
+    // so it has to be reopened to reach the fresh evidence.
+    await user.click(screen.getByRole("button", { name: /^Evidence \(/ }));
     const secondArticle = screen.getByRole("article", { name: /Evidence 1: discarded/i });
     const secondExpand = within(secondArticle).getByRole("button", { name: "Open full passage" });
     await user.click(secondExpand);
@@ -490,6 +500,9 @@ describe("request cancellation", () => {
     await submitQuestion(user);
     await screen.findByLabelText("CRITICAL risk assessment");
 
+    // Evidence now lives behind the "Evidence (N)" button, not permanently on
+    // the page.
+    await user.click(screen.getByRole("button", { name: /^Evidence \(/ }));
     await user.click(screen.getAllByRole("button", { name: "Open full passage" })[0]!);
     await evidenceStarted;
     expect(screen.getByText(/Loading the canonical source passage/i)).toBeInTheDocument();
@@ -502,7 +515,11 @@ describe("request cancellation", () => {
     } finally {
       if (!evidenceWasAborted && detail) releaseEvidence?.(HttpResponse.json(detail));
     }
-    expect(screen.getByText("Evidence will appear here")).toBeInTheDocument();
+    // New assessment closes the modal along with clearing the inspector state
+    // (there is no longer a permanently visible evidence panel to show an
+    // empty state in) -- the entry point itself should be gone since there is
+    // no evidence yet.
+    expect(screen.queryByRole("button", { name: /^Evidence \(/ })).not.toBeInTheDocument();
   });
 });
 
@@ -524,5 +541,65 @@ describe("theme preference", () => {
     await user.click(screen.getByRole("button", { name: "Switch to light theme" }));
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(window.localStorage.getItem("clinical-theme")).toBe("light");
+  });
+});
+
+describe("chat-style composer", () => {
+  it("sends on Enter, clears the input, and shows the question as a bubble", async () => {
+    const user = userEvent.setup();
+    let receivedMessage = "";
+    mockHealthyApi();
+    server.use(
+      http.post(`${API_ROOT}/api/query`, async ({ request }) => {
+        const body = (await request.json()) as { message: string };
+        receivedMessage = body.message;
+        return HttpResponse.json(getDemoResult("low"));
+      }),
+    );
+    render(<App />);
+    await screen.findByRole("status", { name: "System status: LIVE" });
+
+    const question = screen.getByRole("textbox", { name: "Clinical question" });
+    await user.type(question, "I am more short of breath than usual{Enter}");
+
+    await screen.findByLabelText("LOW risk assessment");
+    expect(receivedMessage).toBe("I am more short of breath than usual");
+    expect(question).toHaveValue("");
+    expect(screen.getByText("I am more short of breath than usual")).toBeInTheDocument();
+  });
+
+  it("inserts a newline on Shift+Enter instead of sending, then sends the multi-line text on Enter", async () => {
+    const user = userEvent.setup();
+    let receivedMessage = "";
+    let queryCalls = 0;
+    mockHealthyApi();
+    server.use(
+      http.post(`${API_ROOT}/api/query`, async ({ request }) => {
+        queryCalls += 1;
+        const body = (await request.json()) as { message: string };
+        receivedMessage = body.message;
+        return HttpResponse.json(getDemoResult("low"));
+      }),
+    );
+    render(<App />);
+    await screen.findByRole("status", { name: "System status: LIVE" });
+
+    const question = screen.getByRole("textbox", { name: "Clinical question" });
+    await user.type(question, "First line{Shift>}{Enter}{/Shift}");
+    expect(queryCalls).toBe(0);
+    expect(question).toHaveValue("First line\n");
+
+    await user.type(question, "Second line{Enter}");
+
+    await screen.findByLabelText("LOW risk assessment");
+    expect(queryCalls).toBe(1);
+    expect(receivedMessage).toBe("First line\nSecond line");
+    expect(question).toHaveValue("");
+
+    // getByText / toHaveTextContent both normalize whitespace (collapsing a
+    // newline to a space), which would hide a regression that dropped the
+    // line break -- read the rendered bubble's textContent directly instead.
+    const bubbleText = document.querySelector(".user-message__text");
+    expect(bubbleText?.textContent).toBe("First line\nSecond line");
   });
 });

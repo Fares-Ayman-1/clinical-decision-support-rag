@@ -287,14 +287,24 @@ def run_query(
         record = chunk_store.get(r.chunk_id)
         if record is not None:
             candidates.append((r.chunk_id, record.text))
-    # The cross-encoder (ms-marco-MiniLM) is ENGLISH-ONLY. Scoring a
-    # non-English question against English chunks produces uniformly deep
-    # negative logits, which the sufficiency gate (thresholds fitted on
-    # English logit distributions) reads as INSUFFICIENT — so every Arabic
-    # question was auto-refused even when Qwen's multilingual dense arm had
-    # retrieved the right chunks. When the question is mostly non-Latin
-    # script and an English rewrite exists, rerank against the rewrite; the
-    # English path stays byte-identical so the fitted thresholds remain valid.
+    # Written when the cross-encoder was ms-marco-MiniLM, which is
+    # ENGLISH-ONLY: scoring a non-English question against English chunks
+    # produced uniformly deep negative logits, which the sufficiency gate
+    # (thresholds fitted on English logit distributions) read as INSUFFICIENT
+    # — so every Arabic question was auto-refused even when Qwen's
+    # multilingual dense arm had retrieved the right chunks. The workaround:
+    # when the question is mostly non-Latin script and an English rewrite
+    # exists, rerank against the rewrite, leaving the English path
+    # byte-identical so the fitted thresholds stay valid.
+    #
+    # The default reranker is now BAAI/bge-reranker-v2-m3, which IS
+    # multilingual, so this substitution is no longer strictly necessary. It
+    # is kept because it is harmless (the English path is unchanged) and
+    # because RERANKER_MODEL is env-configurable — a deployment that pins
+    # ms-marco again still needs it. Revisit once the thresholds are
+    # recalibrated for bge (TODO-PRODUCTION.md), since scoring the original
+    # non-English question directly is the better behaviour when the model
+    # can actually handle it.
     rerank_query = _select_rerank_query(patient_message, queries[1:])
     if rerank_query is patient_message:
         rerank_run = reranker.rerank(rerank_query, candidates, top_k=FINAL_TOP_K)

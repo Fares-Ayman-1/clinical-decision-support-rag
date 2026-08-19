@@ -1,38 +1,61 @@
-# Shared build-context trimming. Applies to EVERY build using the repo root as
-# context — both backend/Dockerfile (compose's `api`) and the Hugging Face
-# Space Dockerfile, which builds the React bundle and the backend together.
+# Shared build-context trimming. Applies to EVERY build that uses the repo root
+# as its context: backend/Dockerfile (compose's `api` and the Railway `api`
+# service) and deploy/hf-space/Dockerfile, which builds the React bundle and the
+# backend together.
 #
-# Do NOT exclude `frontend` wholesale here: the Space image needs
-# frontend/ sources for its node build stage, and a directory excluded at the
-# context level cannot be recovered by a COPY, even for a single file inside it.
-# Only the generated/vendored subtrees are excluded.
+# Do NOT exclude `frontend` wholesale: the Space image needs frontend/ sources
+# for its node build stage, and a directory excluded at the context level cannot
+# be recovered by a later COPY, even for a single file inside it. Only the
+# generated/vendored subtrees below are excluded.
 
-.git
+# Virtualenvs and caches
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# VCS and editor
+.git/
 .gitignore
-.venv
-venv
-__pycache__
-**/__pycache__
-*.pyc
-.pytest_cache
-.ruff_cache
-.claude
+.claude/
+.vscode/
+.idea/
 
-frontend/node_modules
-frontend/dist
-frontend/coverage
-frontend/playwright-report
-frontend/test-results
+# Frontend generated/vendored trees (sources themselves are kept — see above)
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 
-# Secrets: compose injects .env at RUN time via `env_file`, and the Space uses
-# its own secret store. Either way it must never land in an image layer.
+# Secrets: compose injects .env at RUN time via `env_file`, the Space uses its
+# own secret store, and Railway injects variables. It must never land in an
+# image layer — anything COPYed in stays recoverable even if a later layer
+# removes it.
 .env
 .env.*
 !.env.example
 
-# Local dev state. ./data is bind-mounted over the image copy by compose, but
-# the Space image genuinely needs data/chunks + data/chunk_store baked in, so
-# only the throwaway pieces are listed.
-data/traces.db
-data/raw
+# Data: excluded wholesale, then re-included by name.
+#
+# docker-compose.yml bind-mounts data/ locally, but a PaaS has no bind mounts —
+# an image without these two files cannot serve a request, because
+# app/api/dependencies.py opens both at startup (CHUNK_STORE_PATH and
+# MVP_SOURCE_CHUNKS_PATH). They are byte-identical 14 MB files.
+#
+# Order is load-bearing: a negation only takes effect if it FOLLOWS the pattern
+# that excluded the path, and `data/**` (not `data/`) is required for a negation
+# to reach a file inside an excluded subdirectory.
+#
+# data/raw is the copyrighted source PDFs and data/traces.db is local dev state;
+# neither is re-included, so both stay out of every image.
+data/**
+!data/chunk_store/medical_chunks.jsonl
+!data/chunks/benchmark/1.0_S1.jsonl
+
+# Logs
 *.log

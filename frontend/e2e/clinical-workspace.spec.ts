@@ -31,29 +31,54 @@ test.describe("clinical workspace", () => {
     await expect(riskAssessment).toContainText("CRITICAL risk signal");
     await expect(riskAssessment).toContainText("Seek emergency medical care immediately");
     await expect(page.getByText("Evidence-grounded assessment", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open evidence 1" }).first()).toBeVisible();
 
-    const evidencePanel = page.getByRole("tabpanel", { name: "Evidence" });
-    await expect(evidencePanel.getByText("2 SOURCES", { exact: true })).toBeVisible();
-    await expect(
-      evidencePanel.getByRole("article", {
-        name: /Evidence 1: selected\. WHO Framework for the Care of Acute Coronary Syndrome and Stroke/,
-      }),
-    ).toBeVisible();
+    // Evidence and the pipeline are no longer permanent panels -- the main
+    // page stays on the assessment.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Evidence (2)" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Decision Pipeline" })).toBeVisible();
 
+    // A citation click opens the Evidence popup directly on that source,
+    // without navigating away from the assessment.
     await page.getByRole("button", { name: "Open evidence 1" }).first().click();
-    await expect(
-      evidencePanel.getByRole("article", { name: /Evidence 1: selected\./ }),
-    ).toHaveAttribute("aria-current", "true");
+    const evidenceDialog = page.getByRole("dialog", { name: "Retrieved Evidence" });
+    await expect(evidenceDialog).toBeVisible();
+    await expect(evidenceDialog.getByText("2 SOURCES", { exact: true })).toBeVisible();
+    const firstArticle = evidenceDialog.getByRole("article", {
+      name: /Evidence 1: selected\. WHO Framework for the Care of Acute Coronary Syndrome and Stroke/,
+    });
+    await expect(firstArticle).toHaveAttribute("aria-current", "true");
 
-    await evidencePanel.getByRole("button", { name: "Open full passage" }).first().click();
-    await expect(evidencePanel.getByText(/provided only to exercise the evidence inspector/)).toBeVisible();
+    await evidenceDialog.getByRole("button", { name: "Open full passage" }).first().click();
+    await expect(evidenceDialog.getByText(/provided only to exercise the evidence inspector/)).toBeVisible();
 
-    const tracePanel = page.getByRole("tabpanel", { name: "Trace" });
-    await expect(tracePanel.getByText("13/13 stages /", { exact: false })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(evidenceDialog).toBeHidden();
+    await expect(page).toHaveURL(/\/$/); // no route change; still on "/"
+
+    // Reopening collapses the card again (expansion state is not preserved,
+    // only the fetched text is), but expanding it a second time is instant --
+    // no loading state -- because the passage is cached from the first fetch
+    // rather than re-requested.
+    await page.getByRole("button", { name: "Evidence (2)" }).click();
+    await expect(evidenceDialog).toBeVisible();
+    await expect(evidenceDialog.getByText(/provided only to exercise the evidence inspector/)).toHaveCount(0);
+    await evidenceDialog.getByRole("button", { name: "Open full passage" }).first().click();
+    await expect(evidenceDialog.getByText(/Loading the canonical source passage/)).toHaveCount(0);
+    await expect(evidenceDialog.getByText(/provided only to exercise the evidence inspector/)).toBeVisible();
+    await page.getByRole("button", { name: "Close Retrieved Evidence" }).click();
+    await expect(evidenceDialog).toBeHidden();
+
+    await page.getByRole("button", { name: "Decision Pipeline" }).click();
+    const pipelineDialog = page.getByRole("dialog", { name: "Decision Pipeline" });
+    await expect(pipelineDialog).toBeVisible();
+    await expect(pipelineDialog.getByText(/13\/13 stages/)).toBeVisible();
+    await expect(pipelineDialog.getByText(/^Total:/)).toBeVisible();
     await expect(
-      tracePanel.getByRole("list", { name: "Ordered decision pipeline stages" }).getByRole("listitem"),
+      pipelineDialog.getByRole("list", { name: "Ordered decision pipeline stages" }).getByRole("listitem"),
     ).toHaveCount(13);
+    await page.getByRole("button", { name: "Close Decision Pipeline" }).click();
+    await expect(pipelineDialog).toBeHidden();
 
     await expect(page.getByRole("button", { name: "Local number not configured" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Find nearby care" })).toBeVisible();
@@ -79,14 +104,18 @@ test.describe("clinical workspace", () => {
     await expect(page.getByRole("region", { name: /risk assessment/i })).toHaveCount(0);
     await expect(page.getByText("Evidence-grounded assessment", { exact: true })).toHaveCount(0);
 
-    const evidencePanel = page.getByRole("tabpanel", { name: "Evidence" });
-    await expect(evidencePanel.getByText("1 SOURCE", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Evidence (1)" }).click();
+    const evidenceDialog = page.getByRole("dialog", { name: "Retrieved Evidence" });
+    await expect(evidenceDialog.getByText("1 SOURCE", { exact: true })).toBeVisible();
     await expect(
-      evidencePanel.getByRole("article", { name: /Evidence 1: discarded\./ }),
+      evidenceDialog.getByRole("article", { name: /Evidence 1: discarded\./ }),
     ).toBeVisible();
-    await expect(page.getByRole("tabpanel", { name: "Trace" })).toContainText(
-      "13/13 stages /",
-    );
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Decision Pipeline" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Decision Pipeline" }).getByText(/13\/13 stages/),
+    ).toBeVisible();
   });
 
   test("persists only the selected theme across reloads", async ({ page }) => {
@@ -120,66 +149,64 @@ test.describe("clinical workspace", () => {
       .toEqual(["clinical-theme"]);
   });
 
-  test("switches between the mobile Chat, Evidence, and Trace panels", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  test("keeps modal popups accessible: Escape, backdrop click, and focus return", async ({ page }) => {
     await page.goto("/");
+    await enterSyntheticDemo(page);
+    await submitCurrentQuestion(page);
+    await expect(page.getByRole("region", { name: "CRITICAL risk assessment" })).toBeVisible();
 
-    const tabs = page.getByRole("tablist", { name: "Clinical workspace panels" });
-    const chatTab = tabs.getByRole("tab", { name: "Chat" });
-    const evidenceTab = tabs.getByRole("tab", { name: "Evidence" });
-    const traceTab = tabs.getByRole("tab", { name: "Trace" });
-    const chatPanel = page.getByRole("tabpanel", { name: "Chat" });
-    const evidencePanel = page.getByRole("tabpanel", { name: "Evidence", includeHidden: true });
-    const tracePanel = page.getByRole("tabpanel", { name: "Trace", includeHidden: true });
+    const evidenceButton = page.getByRole("button", { name: "Evidence (2)" });
+    await evidenceButton.click();
+    const evidenceDialog = page.getByRole("dialog", { name: "Retrieved Evidence" });
+    await expect(evidenceDialog).toBeVisible();
 
-    await expect(chatTab).toHaveAttribute("aria-selected", "true");
-    await expect(chatPanel).toBeVisible();
-    await expect(evidencePanel).toBeHidden();
-    await expect(tracePanel).toBeHidden();
+    // Esc closes it and returns focus to the button that opened it.
+    await page.keyboard.press("Escape");
+    await expect(evidenceDialog).toBeHidden();
+    await expect(evidenceButton).toBeFocused();
 
-    await chatTab.focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(evidenceTab).toHaveAttribute("aria-selected", "true");
-    await expect(evidenceTab).toBeFocused();
-    await expect(evidencePanel).toBeVisible();
-    await expect(evidencePanel.getByRole("heading", { name: "Evidence will appear here" })).toBeVisible();
-    await expect(chatPanel).toBeHidden();
+    // Clicking outside the panel (the backdrop) also closes it.
+    const pipelineButton = page.getByRole("button", { name: "Decision Pipeline" });
+    await pipelineButton.click();
+    const pipelineDialog = page.getByRole("dialog", { name: "Decision Pipeline" });
+    await expect(pipelineDialog).toBeVisible();
+    await page.mouse.click(10, 10);
+    await expect(pipelineDialog).toBeHidden();
+    await expect(pipelineButton).toBeFocused();
 
-    await traceTab.click();
-    await expect(traceTab).toHaveAttribute("aria-selected", "true");
-    await expect(tracePanel).toBeVisible();
-    await expect(tracePanel.getByRole("heading", { name: "Trace unavailable" })).toBeVisible();
-    await expect(evidencePanel).toBeHidden();
-
-    await chatTab.click();
-    await expect(chatPanel).toBeVisible();
+    // The assessment underneath was never touched by any of this.
+    await expect(page.getByRole("region", { name: "CRITICAL risk assessment" })).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
   });
 
-  test("keeps the approved two-row tablet workspace at 820px", async ({ page }) => {
-    await page.setViewportSize({ width: 820, height: 1180 });
+  test("sizes the Evidence popup as a compact desktop panel, an inset tablet panel, and a full-screen mobile panel", async ({ page }) => {
     await page.goto("/");
+    await enterSyntheticDemo(page);
+    await submitCurrentQuestion(page);
 
-    await expect(page.getByRole("tablist", { name: "Clinical workspace panels" })).toBeHidden();
-    const chatPanel = page.getByRole("tabpanel", { name: "Chat" });
-    const evidencePanel = page.getByRole("tabpanel", { name: "Evidence" });
-    const tracePanel = page.getByRole("tabpanel", { name: "Trace" });
-    await expect(chatPanel).toBeVisible();
-    await expect(evidencePanel).toBeVisible();
-    await expect(tracePanel).toBeVisible();
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("Expected a configured viewport for the desktop case");
+    await page.getByRole("button", { name: "Evidence (2)" }).click();
+    let box = await page.getByRole("dialog", { name: "Retrieved Evidence" }).boundingBox();
+    if (!box) throw new Error("Evidence dialog must have a layout box");
+    expect(box.width).toBeLessThanOrEqual(1_000);
+    expect(box.width).toBeLessThan(viewport.width);
+    expect(box.height).toBeLessThan(viewport.height);
+    await page.keyboard.press("Escape");
 
-    const [chatBox, evidenceBox, traceBox] = await Promise.all([
-      chatPanel.boundingBox(),
-      evidencePanel.boundingBox(),
-      tracePanel.boundingBox(),
-    ]);
-    expect(chatBox).not.toBeNull();
-    expect(evidenceBox).not.toBeNull();
-    expect(traceBox).not.toBeNull();
-    if (!chatBox || !evidenceBox || !traceBox) throw new Error("Tablet panels must have layout boxes");
-    expect(chatBox.width).toBeGreaterThan(760);
-    expect(evidenceBox.y).toBeGreaterThan(chatBox.y + chatBox.height - 2);
-    expect(Math.abs(evidenceBox.y - traceBox.y)).toBeLessThan(2);
-    expect(evidenceBox.x).toBeLessThan(traceBox.x);
+    await page.setViewportSize({ width: 820, height: 1_180 });
+    await page.getByRole("button", { name: "Evidence (2)" }).click();
+    box = await page.getByRole("dialog", { name: "Retrieved Evidence" }).boundingBox();
+    if (!box) throw new Error("Evidence dialog must have a layout box at tablet width");
+    expect(box.width).toBeCloseTo(820 - 32, 0);
+    await page.keyboard.press("Escape");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Evidence (2)" }).click();
+    box = await page.getByRole("dialog", { name: "Retrieved Evidence" }).boundingBox();
+    if (!box) throw new Error("Evidence dialog must have a layout box at mobile width");
+    expect(box.width).toBeCloseTo(390, 0);
+    expect(box.height).toBeCloseTo(844, 0);
   });
 
   test("exposes landmarks and supports a keyboard-only path into demo mode", async ({ page }) => {
@@ -188,9 +215,7 @@ test.describe("clinical workspace", () => {
     await expect(page.getByRole("banner")).toBeVisible();
     await expect(page.getByRole("main")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1, name: /Clinical decisions/ })).toBeVisible();
-    await expect(page.getByRole("tabpanel", { name: "Chat" })).toBeVisible();
-    await expect(page.getByRole("tabpanel", { name: "Evidence" })).toBeVisible();
-    await expect(page.getByRole("tabpanel", { name: "Trace" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Clinical assessment" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Medical disclaimer" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Clinical question" })).toBeVisible();
 

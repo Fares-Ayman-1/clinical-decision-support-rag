@@ -39,6 +39,47 @@ and no amount of engineering quality substitutes for them.
 
 ## RAG Quality
 
+- [ ] **bge-reranker-v2-m3 is too slow for CPU serving — it burns 96s and then gives up** — **P0**
+  **Reason:** Measured on the live Railway deployment, one query totalling 124.7s:
+
+      retrieval    10.3s
+      rerank       96.4s   <- 77% of the request, then
+                              "reranker exceeded 3.0s budget" and fell back to RRF
+      generation   10.2s
+
+  bge-reranker-v2-m3 is a 2.2 GB XLM-R cross-encoder. On Railway's CPU it cannot finish
+  within the 3s budget, so every query pays the full cost and then discards the result.
+  **Impact:** p95 was already 39.6s against an 8s target; this makes it far worse while
+  delivering no reranking at all. Note the one upside: because the fallback sets
+  `signal_used: "rrf"`, the mis-scaled reranker thresholds (see the sufficiency-gate P0)
+  are currently bypassed — so fixing the timeout without fixing the thresholds would
+  ACTIVATE that bug.
+  **Options:** (a) run reranking on GPU, as the ZeroGPU Space does; (b) pick a smaller
+  multilingual cross-encoder; (c) raise the budget and accept the latency; (d) serve with
+  `RERANKER_MODEL` empty (explicit NullReranker) and rely on RRF, which is what is
+  effectively happening now — but by accident rather than by choice, and without the
+  honest trace signal that an explicit choice would give.
+
+- [ ] **Recalibrate the sufficiency thresholds for bge-reranker-v2-m3 — THE GATE CURRENTLY FAILS OPEN** — **P0**
+  **Reason:** The default reranker changed to `BAAI/bge-reranker-v2-m3`, whose outputs are
+  sigmoid-normalised to roughly 0..1. `TAU_HIGH_RERANK` / `TAU_LOW_RERANK` still hold ms-marco's
+  fitted values (+0.7285 / -3.9325), which were raw logits on a roughly -10..+10 scale.
+  **Impact — safety-relevant, and in the dangerous direction.** Every bge score clears
+  `tau_low = -3.9325`, so nothing is ever classified INSUFFICIENT. Measured in the built image
+  for "What diet helps with high blood pressure?":
+
+      relevant passage   +0.8687
+      related passage    +0.1373
+      irrelevant passage +0.0000   (a femur-fracture passage)
+
+  The irrelevant passage lands in PARTIAL, so the system generates an answer where it should
+  refuse. SAF-4's evidence-sufficiency gate is the control that stops ungrounded clinical
+  answers; on this scale it is inert.
+  **Interim mitigation:** set `SUFFICIENCY_TAU_LOW_RERANK` / `SUFFICIENCY_TAU_HIGH_RERANK` to
+  values on the 0..1 scale on any deployment running bge. This needs no rebuild.
+  **Fix:** `python scripts/fit_thresholds.py --write` against the labeled splits with bge active,
+  then update the defaults.
+
 - [ ] **Finish the chunking-strategy benchmark (S2, S4, S5, S7)** — **P1**
   **Reason:** Only config S1 was successfully indexed and evaluated (PROJECT-STATE.md §5, §8 R13) —
   sustained CPU-bound embedding proved unreliable in the dev sandbox across 5 reproduction attempts,
@@ -207,6 +248,20 @@ and no amount of engineering quality substitutes for them.
   **Reason:** A stale cache serving pre-update guideline content is a clinical correctness bug.
 
 ## Observability
+
+- [ ] **Make `/api/health` actually check the LLM and the reranker** — **P1**
+  **Reason:** Three of the five checks are hardcoded `True` (`embedding_model`, `reranker`,
+  `llm`). `llm` is never probed: a container started without `OLLAMA_API_KEY` reported
+  `llm: {"ok": true}` and `status: "ok"` while every completion failed with
+  `Connection refused`, and the first real query returned 500. `reranker.ok` is similarly
+  unconditional even though `_load_reranker()` deliberately degrades to `NullReranker`, so it
+  reads `true` when no reranking is happening at all.
+  **Impact:** A misconfigured deployment goes green and only fails when a patient asks
+  something. On a platform that gates rollout on the health endpoint, a broken deploy is
+  promoted rather than held back.
+  **Fix:** A cheap liveness probe for the provider (not a full completion — that costs money
+  and latency on every check), and report the reranker's real class rather than a constant.
+
 
 - [ ] **Add distributed tracing (OpenTelemetry)** — **P1**
 - [ ] **Add error aggregation (Sentry) with PII scrubbing** — **P1**

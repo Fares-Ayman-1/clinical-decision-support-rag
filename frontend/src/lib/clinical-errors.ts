@@ -26,6 +26,7 @@ export interface ClinicalApiErrorOptions {
   evidence?: EvidenceItem[];
   retryAfterSeconds?: number;
   cause?: unknown;
+  reason?: string;
 }
 
 export class ClinicalApiError extends Error {
@@ -33,6 +34,8 @@ export class ClinicalApiError extends Error {
   readonly status?: number;
   readonly requestId?: string;
   readonly stage?: string;
+  /** Machine-readable diagnostic behind `code` (e.g. VECTOR_STORE_UNREACHABLE). */
+  readonly reason?: string;
   readonly details?: ApiErrorDetail[];
   readonly evidence?: EvidenceItem[];
   readonly retryAfterSeconds?: number;
@@ -45,6 +48,7 @@ export class ClinicalApiError extends Error {
     this.status = options.status;
     this.requestId = options.requestId;
     this.stage = options.stage;
+    this.reason = options.reason;
     this.details = options.details;
     this.evidence = options.evidence;
     this.retryAfterSeconds = options.retryAfterSeconds;
@@ -94,13 +98,26 @@ export function validationErrorToClinicalError(error: ZodError): ClinicalApiErro
 
 export function normalizeHttpError(response: Response, payload: unknown): ClinicalApiError {
   const retryAfter = retryAfterSeconds(response);
-  const structured = apiErrorEnvelopeSchema.safeParse(payload);
+  // FastAPI wraps whatever an HTTPException carries in a `detail` key, so a
+  // handler that raises HTTPException(detail={"error": {...}}) reaches the
+  // client as {"detail": {"error": {...}}} rather than {"error": {...}}.
+  // Unwrap one level of that before matching, otherwise every such response
+  // falls through to the generic INVALID_RESPONSE branch below and the UI
+  // reports "unexpected response" for errors the API described precisely —
+  // observed against a deployed API returning RETRIEVAL_UNAVAILABLE /
+  // VECTOR_STORE_UNREACHABLE, which the user saw only as INVALID_RESPONSE.
+  const unwrapped =
+    payload && typeof payload === "object" && "detail" in payload
+      ? (payload as { detail: unknown }).detail
+      : payload;
+  const structured = apiErrorEnvelopeSchema.safeParse(unwrapped);
   if (structured.success) {
     const { error, evidence } = structured.data;
     return new ClinicalApiError(error.code, error.message, {
       status: response.status,
       requestId: error.request_id,
       stage: error.stage,
+      reason: error.reason,
       details: error.details,
       evidence,
       retryAfterSeconds: retryAfter,

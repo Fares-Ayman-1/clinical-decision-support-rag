@@ -17,6 +17,7 @@ protocol so nothing downstream needs to know which is active.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Protocol
@@ -81,19 +82,30 @@ class CrossEncoderReranker:
     up the retrieval pipeline once a model is available, with zero other
     changes needed downstream."""
 
-    # Env-overridable: the right budget depends on the deployed model x CPU.
-    # ms-marco-MiniLM-L6 scores 25 pairs in ~1s on 2 vCPU; the multilingual
-    # L12 sibling needs ~2-3s; bge-reranker-v2-m3 (568M) needed 105s and is
-    # unusable on cpu-basic - measured live, not estimated.
-    def __init__(self, model_name: str, timeout_seconds: float | None = None):
-        if timeout_seconds is None:
-            import os
+    # Env-overridable because the right budget depends entirely on the model
+    # and the hardware, and getting it wrong is expensive in both directions.
+    # Measured, not estimated: bge-reranker-v2-m3 (568M XLM-R) takes ~96-105s
+    # for 25 candidates on both Railway's CPU and a HF Space's 2 vCPU;
+    # ms-marco-MiniLM-L6 takes ~1s; the multilingual mmarco L12 sibling ~2-4s.
+    # A budget below the model's real cost means every query pays the full
+    # latency and then DISCARDS the result (see rerank() below), which is the
+    # worst of both worlds.
+    #
+    # Both spellings accepted: RERANK_TIMEOUT_SECONDS (main's docs) and
+    # RERANKER_TIMEOUT_SECONDS (already set on the HF Space deployment).
+    DEFAULT_TIMEOUT_SECONDS = float(
+        os.environ.get("RERANK_TIMEOUT_SECONDS")
+        or os.environ.get("RERANKER_TIMEOUT_SECONDS")
+        or "3.0"
+    )
 
-            timeout_seconds = float(os.environ.get("RERANKER_TIMEOUT_SECONDS", "3.0"))
+    def __init__(self, model_name: str, timeout_seconds: float | None = None):
         from sentence_transformers import CrossEncoder
 
         self._model = CrossEncoder(model_name)
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = (
+            timeout_seconds if timeout_seconds is not None else self.DEFAULT_TIMEOUT_SECONDS
+        )
 
     def rerank(self, query: str, candidates: list[tuple[str, str]], top_k: int) -> RerankRun:
         t0 = time.perf_counter()
