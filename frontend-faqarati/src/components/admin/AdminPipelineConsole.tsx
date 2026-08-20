@@ -196,6 +196,10 @@ export default function AdminPipelineConsole() {
               <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-100 text-emerald-700 px-2.5 py-1 text-xs font-black">
                 <ShieldCheck className="w-3.5 h-3.5" /> {t("إجابة موثقة", "GROUNDED ANSWER")}
               </span>
+            ) : result.refusal?.reason === "SMALL_TALK" ? (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-brand-50 text-brand-700 px-2.5 py-1 text-xs font-black">
+                <ShieldCheck className="w-3.5 h-3.5" /> {t("محادثة — رد فوري بدون استرجاع", "SMALL TALK — instant reply, no retrieval")}
+              </span>
             ) : (
               <span className="inline-flex items-center gap-1 rounded-lg bg-amber-100 text-amber-700 px-2.5 py-1 text-xs font-black">
                 <ShieldAlert className="w-3.5 h-3.5" /> {t("رفض آمن", "SAFE REFUSAL")} · {result.refusal?.reason}

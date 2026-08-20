@@ -234,7 +234,11 @@ class RiskOut(BaseModel):
 
 
 class RefusalOut(BaseModel):
-    reason: Literal["OUT_OF_SCOPE", "INSUFFICIENT_EVIDENCE", "PRESCRIBING_REQUEST"]
+    # SMALL_TALK is a refusal only in the contract sense (no evidence, no
+    # generated answer) — the message is a friendly greeting/capabilities
+    # reply, and clients should render it as a normal chat bubble, not a
+    # safety warning.
+    reason: Literal["OUT_OF_SCOPE", "INSUFFICIENT_EVIDENCE", "PRESCRIBING_REQUEST", "SMALL_TALK"]
     message: str
     recommend_professional_evaluation: bool = True
 

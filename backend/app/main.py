@@ -541,6 +541,9 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
             refusal=RefusalOut(
                 reason=result.refusal_reason,
                 message=_refusal_message_with_escalation(result),
+                # A greeting reply must not tell the user to seek
+                # professional evaluation — that flag is for real refusals.
+                recommend_professional_evaluation=result.refusal_reason != "SMALL_TALK",
             ),
             evidence=evidence_out, safety=safety, trace=trace_out, meta=meta,
         )

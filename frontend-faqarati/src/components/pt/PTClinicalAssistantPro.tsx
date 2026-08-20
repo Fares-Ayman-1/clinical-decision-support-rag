@@ -18,6 +18,7 @@ import {
   BookOpenCheck,
   FileSearch,
   Loader2,
+  MessageCircle,
   Mic,
   MicOff,
   Moon,
@@ -485,6 +486,10 @@ export default function PTClinicalAssistantPro() {
                       {turn.response.status === "success" ? (
                         <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md ${c("bg-emerald-100 text-emerald-700", "bg-emerald-900/50 text-emerald-300")}`}>
                           <ShieldCheck className="w-3 h-3" /> {t("إجابة موثقة", "GROUNDED")}
+                        </span>
+                      ) : turn.response.refusal?.reason === "SMALL_TALK" ? (
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md ${c("bg-brand-50 text-brand-700", "bg-brand-950/50 text-brand-300")}`}>
+                          <MessageCircle className="w-3 h-3" /> {t("محادثة", "CHAT")}
                         </span>
                       ) : (
                         <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md ${c("bg-amber-100 text-amber-700", "bg-amber-900/50 text-amber-300")}`}>

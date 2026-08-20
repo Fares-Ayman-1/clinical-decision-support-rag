@@ -565,7 +565,22 @@ export default function PTClinicalAssistantTab({ fullScreen = false }: ClinicalA
                 {t("جاري البحث في الإرشادات السريرية…", "Searching clinical guidelines…")}
               </div>
             )}
-            {turn.response && turn.response.status === "refusal" && (
+            {turn.response && turn.response.status === "refusal" && turn.response.refusal?.reason === "SMALL_TALK" && (
+              <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm max-w-[85%]">
+                <div className="flex items-start gap-2">
+                  <p className="text-sm text-slate-700 leading-relaxed flex-1">{turn.response.refusal?.message}</p>
+                  <button
+                    type="button"
+                    onClick={() => toggleSpeak(i, turn.response!)}
+                    className="text-brand-500 hover:text-brand-700 cursor-pointer shrink-0 mt-0.5"
+                    title={t("قراءة بصوت عالٍ", "Read aloud")}
+                  >
+                    {speakingTurn === i ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+            {turn.response && turn.response.status === "refusal" && turn.response.refusal?.reason !== "SMALL_TALK" && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
                 <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
                   <ShieldAlert className="w-4 h-4" />

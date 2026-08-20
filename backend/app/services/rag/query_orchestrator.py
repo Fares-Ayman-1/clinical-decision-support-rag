@@ -42,6 +42,7 @@ from app.services.rag.chunk_store import ChunkStore
 from app.services.rag.citation_resolver import ResolvedAnswer, resolve_and_validate
 from app.services.rag.evidence_pack import EvidencePack, build_evidence_pack
 from app.services.rag.retrieve_and_rerank import PipelineResult
+from app.services.rag.small_talk import SMALL_TALK_MESSAGES, detect_small_talk, small_talk_reply_language
 from app.services.rag.sufficiency_gate import SufficiencyResult, SufficiencyState, evaluate_sufficiency
 from app.services.decisions.decision_engine import DecisionActions, decide_actions
 from app.services.reranking.reranker import Reranker
@@ -264,6 +265,29 @@ def run_query(
             for m in red_flags.matches
         ],
     })
+
+    # A greeting is not a medical question. Without this, "good morning"
+    # runs the full pipeline (4 LLM calls plus retrieval, ~30s) and lands
+    # in the sufficiency gate's INSUFFICIENT refusal — the user reads a
+    # medical-safety warning in response to hello (observed live). Skipped
+    # whenever a red-flag rule fired: those matches are medical content by
+    # definition, so the message was never pure small talk. Runs on the
+    # preamble-stripped message so a filled-in profile cannot mask (or
+    # fake) a greeting.
+    small_talk = None if red_flags.triggered else detect_small_talk(strip_profile_preamble(patient_message))
+    if small_talk:
+        trace.record("small_talk", {"category": small_talk})
+        reply_lang = small_talk_reply_language(patient_message, msg_lang)
+        return OrchestratorResult(
+            request_id=request_id, status="refusal",
+            supported_domain=False, domains=[], patient_state=None,
+            resolved_answer=None, refusal_reason="SMALL_TALK",
+            refusal_message=SMALL_TALK_MESSAGES[small_talk].get(reply_lang, SMALL_TALK_MESSAGES[small_talk]["en"]),
+            pack=None, sufficiency=None, retrieval=None,
+            latency_ms=(time.perf_counter() - t0) * 1000,
+            trace=trace.as_dict() if include_trace else {},
+            red_flags=red_flags,
+        )
 
     # SAF-7.3 — a prescription request returns a referral, not a partial
     # answer. Short-circuits before the pipeline: there is no version of
