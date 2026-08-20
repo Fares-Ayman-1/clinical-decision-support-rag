@@ -19,7 +19,7 @@ export default function AppShell({ role, activePath, onNavigate, children }: App
   const { t, isRtl, lang, setLang } = useLanguage();
 
   return (
-    <div className={`flex min-h-[calc(100vh-4rem)] ${isRtl ? "flex-row" : "flex-row"}`} dir={isRtl ? "rtl" : "ltr"}>
+    <div className="flex flex-col md:flex-row min-h-[calc(100vh-4rem)]" dir={isRtl ? "rtl" : "ltr"}>
       <Sidebar role={role} activePath={activePath} onNavigate={onNavigate} />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-14 border-b border-slate-200 bg-white px-4 flex items-center justify-between gap-4 sticky top-0 z-30">

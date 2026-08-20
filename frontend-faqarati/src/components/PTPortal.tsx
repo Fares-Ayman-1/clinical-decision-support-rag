@@ -10,7 +10,7 @@ import { Therapist, ExerciseSessionLog } from "../types";
 import ExercisePosePreview from "./exercise/ExercisePosePreview";
 import PTScheduleTab from "./pt/PTScheduleTab";
 import PTMessagesTab from "./pt/PTMessagesTab";
-import PTClinicalAssistantTab from "./pt/PTClinicalAssistantTab";
+import PTClinicalAssistantPro from "./pt/PTClinicalAssistantPro";
 import { 
   Users, Calendar, Clock, PlayCircle, Plus, FileSpreadsheet, 
   Ruler, CheckCircle, Search, Settings, Sparkles, BookOpen, 
@@ -1537,7 +1537,7 @@ How would you like to customize today's movement plan for this patient? Send you
 
       {activeTab === "clinical_assistant" && (
         <div className="h-[calc(100vh-230px)] min-h-[560px]">
-          <PTClinicalAssistantTab fullScreen />
+          <PTClinicalAssistantPro />
         </div>
       )}
 

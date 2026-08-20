@@ -4,7 +4,8 @@
  */
 
 import { useState } from "react";
-import { 
+import {
+  Workflow,
   LayoutDashboard, 
   ClipboardList, 
   Camera, 
@@ -124,6 +125,11 @@ export default function Sidebar({ role, activePath = "", onNavigate }: SidebarPr
             path: "/admin/dashboard",
             label: t("مركز القيادة المركزي", "Command Center"),
             icon: BarChart3,
+          },
+          {
+            path: "/admin/pipeline",
+            label: t("خط أنابيب RAG المباشر", "RAG Pipeline Console"),
+            icon: Workflow,
           },
           {
             path: "/admin/verifications",

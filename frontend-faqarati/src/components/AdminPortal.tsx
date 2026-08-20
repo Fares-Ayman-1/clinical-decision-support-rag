@@ -88,6 +88,7 @@ interface SimulatedAuditLog {
   complianceHash: string;
 }
 
+import AdminPipelineConsole from "./admin/AdminPipelineConsole";
 import ExerciseLibraryCMS from "./admin/ExerciseLibraryCMS";
 
 interface AdminPortalProps {
@@ -174,11 +175,25 @@ export default function AdminPortal({ activePath = "/admin/dashboard" }: AdminPo
   const [mainPortalTab, setMainPortalTab] = useState<"workspace" | "schema" | "privacy">("workspace");
 
   useEffect(() => {
-    if (activePath === "/admin/verifications") setSuperAdminTab("verifications");
-    else if (activePath === "/admin/clinics") setSuperAdminTab("clinics");
-    else if (activePath === "/admin/dashboard") setMainPortalTab("workspace");
-    else if (activePath === "/admin/audit") setMainPortalTab("workspace");
+    // Every sidebar route must land on real content — unmapped paths used
+    // to leave the previous view (or a blank page) behind, which read as
+    // "admin pages don't work".
+    if (activePath === "/admin/verifications") {
+      setMainPortalTab("workspace");
+      setSuperAdminTab("verifications");
+    } else if (activePath === "/admin/clinics" || activePath === "/admin/users") {
+      setMainPortalTab("workspace");
+      setSuperAdminTab("clinics");
+    } else if (activePath === "/admin/settings") {
+      setMainPortalTab("schema");
+    } else if (activePath === "/admin/dashboard" || activePath === "/admin/audit") {
+      setMainPortalTab("workspace");
+    }
   }, [activePath]);
+
+  if (activePath === "/admin/pipeline") {
+    return <AdminPipelineConsole />;
+  }
 
   if (activePath === "/admin/exercise-library") {
     return <ExerciseLibraryCMS />;
