@@ -60,6 +60,8 @@ const STAGE_INFO: Record<string, { ar: string; en: string; describe: (o: Record<
   sufficiency: { ar: "بوابة كفاية الأدلة", en: "Sufficiency gate", describe: (o) => `state: ${o.state} · top: ${Number(o.top_score).toFixed(2)} · τ_low(eff): ${o.tau_low} · x-lingual margin: ${o.cross_lingual_margin_applied ?? false}` },
   generation: { ar: "التوليد المسند", en: "Grounded generation", describe: (o) => `statements: ${o.statements} · insufficient: ${o.insufficient_evidence ?? false}` },
   validation: { ar: "التحقق من الاستشهادات", en: "Citation validation (programmatic)", describe: (o) => `kept: ${o.statements_kept} · dropped: ${o.dropped} · excerpts: ${o.excerpts_kept}` },
+  small_talk: { ar: "كشف المحادثة الودية", en: "Small-talk short-circuit", describe: (o) => `category: ${o.category} — instant localized reply, pipeline skipped` },
+  language_check: { ar: "فرض لغة الإجابة", en: "Answer-language enforcement", describe: (o) => `target: ${o.target_language} · drift: ${o.drift_detected} · rewritten: ${o.rewritten}` },
   dose_scan: { ar: "فحص أنماط الجرعات", en: "Dose-pattern scan (SAF-7.2)", describe: (o) => `blocked: ${o.blocked} · matches: ${(o.matches as unknown[] | undefined)?.length ?? 0}` },
   risk: { ar: "محرك الخطورة", en: "Risk engine", describe: (o) => `urgency: ${o.urgency} · floor applied: ${o.floor_applied ?? false}` },
   decision: { ar: "محرك القرار", en: "Decision engine", describe: (o) => `emergency: ${o.recommend_emergency_care} · follow-up: ${o.show_followup_question}` },

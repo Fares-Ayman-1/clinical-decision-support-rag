@@ -566,11 +566,17 @@ def post_query(request: QueryRequest) -> QuerySuccessOut | QueryRefusalOut:
         # limitations would be an inconsistency worth catching). Rather
         # than let an LLM omission surface as a rejected/invalid API
         # response, synthesize an honest, generic one from what the
-        # Sufficiency Gate itself already computed.
-        limitations = [
-            f"This assessment is based on limited supporting evidence "
-            f"({result.pack.support_count} source{'s' if result.pack.support_count != 1 else ''} found)."
-        ]
+        # Sufficiency Gate itself already computed. Localized: this string
+        # is appended AFTER the orchestrator's language enforcement ran,
+        # so an English template here would put one English line inside an
+        # otherwise-Arabic answer.
+        n = result.pack.support_count
+        synth = {
+            "en": f"This assessment is based on limited supporting evidence ({n} source{'s' if n != 1 else ''} found).",
+            "ar": f"يستند هذا التقييم إلى أدلة داعمة محدودة (تم العثور على {n} من المصادر).",
+            "fr": f"Cette évaluation repose sur des preuves limitées ({n} source{'s' if n != 1 else ''} trouvée{'s' if n != 1 else ''}).",
+        }
+        limitations = [synth.get(_message_language(request.message), synth["en"])]
     assessment = AssessmentOut(
         statements=statements_out,
         limitations=limitations,

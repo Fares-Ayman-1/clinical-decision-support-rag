@@ -35,6 +35,7 @@ from qdrant_client import QdrantClient
 from app.llm.provider import LLMProvider, SchemaViolationError, TransientProviderError
 from app.prompts.domain_classifier import classify_domains
 from app.prompts.grounded_generator import generate_grounded_answer
+from app.prompts.language_enforcer import enforce_answer_language, statements_need_enforcement
 from app.prompts.query_rewriter import rewrite_query
 from app.prompts.symptom_extractor import extract_patient_state
 from app.schemas.query import detect_language, strip_profile_preamble
@@ -519,6 +520,27 @@ def run_query(
             sufficiency=sufficiency, retrieval=retrieval, latency_ms=latency_ms,
             trace=_trace_out(), red_flags=red_flags, risk=risk, decision=decision,
         )
+
+    # Language enforcement — the generator's three prompt-level language
+    # nudges are guidance, not guarantees, and gpt-oss:20b intermittently
+    # answers an Arabic/French question in English when the all-English
+    # evidence block dominates the prompt (observed live). Detect the
+    # language of what was ACTUALLY written; on mismatch, one bounded
+    # rewrite call translates statements+limitations, leaving citations
+    # (structured, never in the rewrite prompt) and verbatim English
+    # excerpt quotes untouched. Every rewrite failure falls back to the
+    # validated English answer. Runs BEFORE the dose scan so the scan sees
+    # the final user-visible text.
+    if statements_need_enforcement(resolved, msg_lang):
+        resolved, rewritten = enforce_answer_language(llm, resolved, msg_lang)
+        trace.record("language_check", {
+            "target_language": msg_lang, "drift_detected": True, "rewritten": rewritten,
+            "statements": len(resolved.statements),
+        })
+    else:
+        trace.record("language_check", {
+            "target_language": msg_lang, "drift_detected": False, "rewritten": False,
+        }, latency_ms=0.0)
 
     # SAF-7.2 — scan the text a user would actually see. This runs on the
     # RESOLVED output (post-validation), because that is the final content;

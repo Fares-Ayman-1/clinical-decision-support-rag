@@ -269,6 +269,8 @@ language of the question — including the strings the LLM never writes.
 | **FR-11.4** | The recommendation line, low-risk fixed copy, and emergency lead/instruction MUST be localized (`*_ar` config keys, English fallback — a missing translation must never suppress an emergency instruction) | MVP |
 | **FR-11.5** | Language detection MUST ignore the always-English patient-profile preamble | MVP |
 | **FR-11.6** | Non-Latin questions MUST NOT be gated by English-fitted sufficiency thresholds without the cross-lingual margin (RAG-10.7) | MVP |
+| **FR-11.7** | FR-11.1 MUST be enforced deterministically, not only prompted: after generation, the language of every statement and limitation is detected; on drift, one bounded rewrite call translates the user-visible prose into the question's language. Citations never enter the rewrite; every rewrite failure returns the original validated answer (`language_check` trace stage) | MVP |
+| **FR-11.8** | Pure small talk (greetings, thanks, farewells, "who are you" — ar/en/fr) MUST short-circuit before the pipeline with an instant localized friendly reply (`SMALL_TALK` refusal reason, rendered as a chat bubble, never as a safety refusal). The detector MUST be conservative: any message with clinical residue beyond pleasantries/fillers runs the full pipeline, and the short-circuit never fires when a red-flag rule matched | MVP |
 
 ---
 
